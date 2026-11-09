@@ -15,6 +15,10 @@ from comun import config
 
 _aviso_personal_impreso = False
 _aviso_lock = Lock()
+_aviso_sin_api_key_impreso = False
+_aviso_api_lock = Lock()
+_cliente_api = None
+_cliente_api_lock = Lock()
 
 
 def _avisar_agents_personal() -> None:
@@ -37,6 +41,24 @@ def _avisar_agents_personal() -> None:
 
 def _validar_salida(contenido: str, esquema: type[BaseModel]) -> BaseModel:
     return esquema.model_validate_json(contenido)
+
+
+def _cliente_openai():
+    global _cliente_api
+    with _cliente_api_lock:
+        if _cliente_api is None:
+            from openai import OpenAI
+
+            _cliente_api = OpenAI()
+        return _cliente_api
+
+
+def _avisar_sin_api_key() -> None:
+    global _aviso_sin_api_key_impreso
+    with _aviso_api_lock:
+        if not _aviso_sin_api_key_impreso:
+            print("[LLM] sin OPENAI_API_KEY: usando codex")
+            _aviso_sin_api_key_impreso = True
 
 
 def _llamar_codex(
@@ -106,21 +128,17 @@ def _llamar_api(
     esquema: type[BaseModel],
     modelo: str,
 ) -> BaseModel:
-    from agents import Agent, Runner
-
-    agente = Agent(
-        name="agente",
-        instructions=instrucciones,
+    cliente = _cliente_openai()
+    respuesta = cliente.responses.parse(
         model=modelo,
-        output_type=esquema,
+        instructions=instrucciones,
+        input=entrada,
+        text_format=esquema,
     )
-    resultado = Runner.run_sync(agente, entrada)
-    salida = resultado.final_output
-    if isinstance(salida, esquema):
-        return salida
-    if isinstance(salida, str):
-        return _validar_salida(salida, esquema)
-    return esquema.model_validate(salida)
+    if respuesta.output_parsed is None:
+        texto = getattr(respuesta, "output_text", None) or str(respuesta)
+        raise RuntimeError(f"La API no devolvió una salida estructurada: {texto}")
+    return respuesta.output_parsed
 
 
 def llamar_modelo(
@@ -134,12 +152,17 @@ def llamar_modelo(
     _avisar_agents_personal()
     modelo = modelo or config.MODELOS[agente]
     esfuerzo = esfuerzo or config.ESFUERZO[agente]
+    motor = config.LLM_BACKEND or config.BACKEND.get(agente, "codex")
+    if motor == "api" and not os.getenv("OPENAI_API_KEY"):
+        _avisar_sin_api_key()
+        motor = "codex"
+    print(f"[LLM] {agente} -> {motor} ({modelo})")
 
-    if config.LLM_BACKEND == "codex":
+    if motor == "codex":
         return _llamar_codex(agente, instrucciones, entrada, esquema, modelo, esfuerzo)
-    if config.LLM_BACKEND == "api":
+    if motor == "api":
         return _llamar_api(instrucciones, entrada, esquema, modelo)
-    raise ValueError(f"LLM_BACKEND no reconocido: {config.LLM_BACKEND!r}")
+    raise ValueError(f"Motor LLM no reconocido: {motor!r}")
 
 
 async def allamar_modelo(
