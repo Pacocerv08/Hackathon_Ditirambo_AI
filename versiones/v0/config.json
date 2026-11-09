@@ -1,0 +1,18 @@
+{
+  "id": "v0",
+  "padre": null,
+  "capacidades": {
+    "umbral_por_costos": false,
+    "revisar_fuga": false,
+    "variables_calendario": false
+  },
+  "lecciones_activas": [],
+  "creada_por": "equipo",
+  "cambios": [],
+  "modelos": {
+    "analista": "gpt-6-luna",
+    "proponente": "gpt-6.1-sol",
+    "diagnostico": "gpt-6.1-sol",
+    "curador": "gpt-6.1-sol"
+  }
+}
