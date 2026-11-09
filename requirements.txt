@@ -1,0 +1,13 @@
+openai-agents
+python-dotenv
+pydantic
+pandas
+numpy
+pyarrow
+scipy
+scikit-learn
+statsmodels
+statsforecast
+lightgbm
+matplotlib
+pytest
