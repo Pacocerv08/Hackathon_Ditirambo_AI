@@ -9,3 +9,6 @@ Todo cambio manual a datos, evaluación, versiones, lecciones o instrucciones qu
 | | Diego | Muestra estratificada de 3000 filas (semilla 42) en churn | Mantener la evaluación por debajo de 10 s | No, es un detalle técnico |
 | | Diego | Serie de demanda sintética con efectos de calendario (demanda, demanda_b y demanda_r) | Tener un caso donde la lección de calendario sí ayude | Sí, se dice al presentar |
 | | Diego | Umbral de resuelto 0.9 contra referencia "nunca actuar" (clasificación) o valor de hace 7 días (series) | Criterio de evaluación acordado con el equipo | Sí, define qué cuenta como resuelto |
+| | Equipo | Capacidades (umbral por costos, revisar fuga, variables de calendario) programadas por el equipo; el sistema decide cuándo encenderlas mediante lecciones | Transparencia sobre qué hace el sistema y qué hicimos nosotros | Sí, se dice al presentar |
+| | Eduardo | Agentes (analista, proponente, diagnóstico) por API y curador por Codex CLI (`codex exec`), todos con gpt-6-luna | No había API key al inicio; Codex queda dentro del ciclo de mejora | Sí, se dice al presentar |
+| | Paco | El proponente recibe la lista de variables disponibles según las capacidades de la versión (`calendario` solo si está encendida) | Que la capacidad desbloquee una herramienta que el sistema decide usar | Sí |
