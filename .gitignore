@@ -1,0 +1,18 @@
+# Entorno	 y secretos
+.venv/
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Datos crudos (cada quien los descarga)
+datos/crudos/
+
+# Salidas que se regeneran: base de datos, figuras, logs
+salidas/
+*.db
+
+# Editor y sistema
+.vscode/
+.DS_Store
