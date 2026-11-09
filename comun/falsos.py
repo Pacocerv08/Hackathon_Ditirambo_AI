@@ -13,7 +13,9 @@ from comun.contratos import (
     PeorCaso,
     Problema,
     Resultado,
+    ResultadoCiclo,
     TipoTarea,
+    Version,
 )
 
 
@@ -92,6 +94,77 @@ def evaluar_falso(
         resuelto=costo_relativo < config.UMBRAL_RESUELTO,
         metricas={"costo_relativo": costo_relativo},
         peores_casos=peores_casos,
+    )
+
+
+def resolver_falso(
+    problema: Problema,
+    version: Version,
+    run_id: str | None = None,
+) -> ResultadoCiclo:
+    """Ejecuta un ciclo determinista con candidatos fijos y el evaluador del puerto."""
+    from comun import puertos
+
+    if run_id is None:
+        run_id = f"{version.id}-{problema.id}-falso"
+
+    if problema.tipo_tarea == "clasificacion":
+        candidatos = [
+            Candidato(modelo="logistica", justificacion="Usa un modelo lineal como referencia interpretable."),
+            Candidato(modelo="arbol", justificacion="Prueba una relación no lineal sencilla."),
+            Candidato(modelo="lightgbm", justificacion="Compara con un modelo de árboles más flexible."),
+        ]
+    else:
+        candidatos = [
+            Candidato(
+                modelo="arbol",
+                features=["rezagos"],
+                justificacion="Usa rezagos recientes para pronosticar la serie.",
+            ),
+            Candidato(
+                modelo="lightgbm",
+                features=["rezagos"],
+                justificacion="Evalúa un modelo flexible con rezagos recientes.",
+            ),
+            Candidato(
+                modelo="lightgbm",
+                features=["rezagos", "medias_moviles"],
+                justificacion="Añade medias móviles a los rezagos para resumir la tendencia cercana.",
+            ),
+        ]
+
+    resultados = [
+        puertos.evaluar(
+            problema,
+            candidato,
+            version.capacidades,
+            modo="validacion",
+            version=version.id,
+        )
+        for candidato in candidatos
+    ]
+    indice_mejor = min(
+        range(len(resultados)),
+        key=lambda indice: resultados[indice].costo_relativo,
+    )
+    mejor_candidato = candidatos[indice_mejor]
+    mejor_resultado = resultados[indice_mejor]
+    resultado_produccion = puertos.evaluar(
+        problema,
+        mejor_candidato,
+        version.capacidades,
+        modo="produccion",
+        version=version.id,
+    )
+    return ResultadoCiclo(
+        problema_id=problema.id,
+        version=version.id,
+        run_id=run_id,
+        mejor_candidato=mejor_candidato,
+        mejor_resultado=mejor_resultado,
+        historial=resultados,
+        diagnosticos=["[FALSO] resolver sin agentes"],
+        resultado_produccion=resultado_produccion,
     )
 
 

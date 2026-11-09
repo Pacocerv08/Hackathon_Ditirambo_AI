@@ -167,6 +167,25 @@ class Almacen:
         )
         self._conexion.commit()
 
+    def guardar_version(self, version: Version) -> None:
+        self._conexion.execute(
+            "INSERT OR REPLACE INTO versiones (id, padre, version_json, creada) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                version.id,
+                version.padre,
+                version.model_dump_json(),
+                self._ahora(),
+            ),
+        )
+        self._conexion.commit()
+
+    def ids_lecciones(self) -> list[str]:
+        filas = self._conexion.execute(
+            "SELECT id FROM lecciones ORDER BY rowid ASC"
+        ).fetchall()
+        return [fila[0] for fila in filas]
+
     def lecciones(self, ids: list[str]) -> list[Leccion]:
         if not ids:
             return []
