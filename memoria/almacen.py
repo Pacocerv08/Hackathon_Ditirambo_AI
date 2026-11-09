@@ -180,6 +180,12 @@ class Almacen:
         )
         self._conexion.commit()
 
+    def ids_lecciones(self) -> list[str]:
+        filas = self._conexion.execute(
+            "SELECT id FROM lecciones ORDER BY rowid ASC"
+        ).fetchall()
+        return [fila[0] for fila in filas]
+
     def lecciones(self, ids: list[str]) -> list[Leccion]:
         if not ids:
             return []

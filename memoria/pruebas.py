@@ -10,12 +10,14 @@ from comun.contratos import (
     Capacidades,
     Leccion,
     Modo,
+    ResultadoCiclo,
     Resultado,
     Version,
 )
 from comun.falsos import evaluar_falso, problema_falso
 from memoria.almacen import Almacen
 from memoria.constructor import construir_sucesor
+from memoria.curador import LeccionPropuesta, _validar
 from memoria.versiones import crear_v0, cargar_version, version_sin
 
 
@@ -298,6 +300,101 @@ def prueba_sucesor_existente() -> None:
         assert protegido.read_text(encoding="utf-8") == "conservar\n"
 
 
+def _contexto_curador(umbral_activo: bool = False):
+    problema = problema_falso("clasificacion")
+    problema.id = "curador_prueba"
+    candidatos = [_candidato("referencia"), _candidato("logistica")]
+    historial = [
+        evaluar_falso(problema, candidato, Capacidades(), version="v0")
+        for candidato in candidatos
+    ]
+    ciclo = ResultadoCiclo(
+        problema_id=problema.id,
+        version="v0",
+        run_id="run_curador_pruebas",
+        mejor_candidato=None,
+        mejor_resultado=None,
+        historial=historial,
+        diagnosticos=[],
+    )
+    version = Version(
+        id="v0",
+        padre=None,
+        capacidades=Capacidades(umbral_por_costos=umbral_activo),
+        lecciones_activas=[],
+        creada_por="equipo",
+        cambios=[],
+    )
+    return problema, ciclo, version
+
+
+def _propuesta_curador(
+    evidencia: list[str],
+    texto: str = "Ajusta la decisión según los costos de error.",
+    capacidad: str | None = None,
+) -> LeccionPropuesta:
+    return LeccionPropuesta(
+        senal="El costo se concentra en errores de un tipo.",
+        evidencia=evidencia,
+        texto=texto,
+        tipo_cambio="regla",
+        capacidad=capacidad,
+        regla_para=["proponente"],
+    )
+
+
+def prueba_curador_evidencia() -> None:
+    problema, ciclo, version = _contexto_curador()
+    candidato_id = ciclo.historial[0].candidato_id
+    propuestas = [
+        _propuesta_curador([candidato_id]),
+        _propuesta_curador(["inventado"], texto="Esta evidencia no existe."),
+    ]
+
+    lecciones = _validar(propuestas, problema, ciclo, version, ids_existentes=[])
+
+    assert len(lecciones) == 1
+    assert lecciones[0].id == "L001"
+    assert lecciones[0].evidencia == [candidato_id]
+    assert lecciones[0].version_origen == "v0"
+    assert lecciones[0].problema_origen == problema.id
+
+
+def prueba_curador_capacidad_activa() -> None:
+    problema, ciclo, version = _contexto_curador(umbral_activo=True)
+    propuesta = _propuesta_curador(
+        [ciclo.historial[0].candidato_id],
+        capacidad="umbral_por_costos",
+    )
+
+    lecciones = _validar([propuesta], problema, ciclo, version, ids_existentes=[])
+
+    assert lecciones == []
+
+
+def prueba_curador_limite_y_dominio() -> None:
+    problema, ciclo, version = _contexto_curador()
+    evidencia = [resultado.candidato_id for resultado in ciclo.historial]
+    propuestas = [
+        _propuesta_curador([evidencia[0]], texto=f"Evita repetir {problema.id.upper()} en reglas."),
+        _propuesta_curador([evidencia[0]], texto="Ajusta decisiones con costos asimétricos."),
+        _propuesta_curador([evidencia[1]], texto="Comprueba el resultado en casos reservados."),
+        _propuesta_curador([evidencia[1]], texto="Revisa columnas que predicen demasiado bien."),
+    ]
+
+    lecciones = _validar(
+        propuestas,
+        problema,
+        ciclo,
+        version,
+        ids_existentes=["L001", "L003"],
+    )
+
+    assert len(lecciones) == 2
+    assert all(problema.id.lower() not in leccion.texto.lower() for leccion in lecciones)
+    assert [leccion.id for leccion in lecciones] == ["L004", "L005"]
+
+
 def main() -> None:
     pruebas = (
         prueba_guardar_y_leer,
@@ -309,6 +406,9 @@ def main() -> None:
         prueba_construir_sucesor,
         prueba_construir_y_ablacionar,
         prueba_sucesor_existente,
+        prueba_curador_evidencia,
+        prueba_curador_capacidad_activa,
+        prueba_curador_limite_y_dominio,
     )
     for prueba in pruebas:
         prueba()
