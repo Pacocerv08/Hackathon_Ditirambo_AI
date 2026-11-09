@@ -6,6 +6,7 @@ from comun.falsos import (
     contexto_de_fecha_falso,
     evaluar_falso,
     huella_falsa,
+    resolver_falso,
 )
 
 
@@ -30,11 +31,15 @@ huella, _huella_falsa = _seleccionar("huella", "datos.huella", "huella", huella_
 contexto_de_fecha, _contexto_de_fecha_falso = _seleccionar(
     "contexto_de_fecha", "datos.contexto", "contexto_de_fecha", contexto_de_fecha_falso
 )
+resolver, _resolver_falso = _seleccionar(
+    "resolver", "agentes.ciclo", "resolver_sync", resolver_falso
+)
 
 PUERTOS_FALSOS: dict[str, bool] = {
     "evaluar": _evaluar_falso,
     "huella": _huella_falsa,
     "contexto_de_fecha": _contexto_de_fecha_falso,
+    "resolver": _resolver_falso,
 }
 
-__all__ = ["evaluar", "huella", "contexto_de_fecha", "PUERTOS_FALSOS"]
+__all__ = ["evaluar", "huella", "contexto_de_fecha", "resolver", "PUERTOS_FALSOS"]

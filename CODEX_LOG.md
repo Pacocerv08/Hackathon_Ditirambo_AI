@@ -15,3 +15,5 @@ Una entrada por uso relevante. La rúbrica califica la aplicación de Codex (25%
 | 13:59 | Eduardo | memoria | Implementar `construir_sucesor` y persistir modelos/versiones con los contratos indicados | Añadí el constructor, lectura/escritura de modelos en versiones y `Almacen.guardar_version` | Aceptado; pruebas corridas a mano en WSL: 9 OK |
 | 14:18 | Eduardo | memoria | Agregar pruebas de validación de propuestas del curador sin alterar las pruebas existentes | Añadí preparación de ciclos falsos y tres pruebas para evidencia, capacidad activa y límite/dominio | Aceptado; corregido a mano: cuarta propuesta para probar el límite de 2 |
 | 14:25 | Eduardo | memoria | Crear curador, instrucciones y listado de ids de lecciones, sin ejecutar Python | Añadí `_validar`, `_resumen`, ejecución protegida del Agent y `Almacen.ids_lecciones` | Aceptado; correcciones posteriores en validación e instrucciones |
+| 14:33 | Eduardo | comun | Agregar `resolver_falso`, el puerto resolver y documentarlos | Implementé el ciclo falso sin LLM con candidatos fijos y selección real/falsa independiente | Aceptado; Python no ejecutado por instrucción |
+

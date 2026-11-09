@@ -178,16 +178,19 @@ Mismas firmas que las funciones reales, con resultados plausibles y determinista
 - `evaluar_falso(problema, candidato, capacidades, modo="validacion", version="v0") -> Resultado` — `costo_relativo` aleatorio entre 0.6 y 1.2, y `peores_casos` con 5 entradas.
 - `contexto_de_fecha_falso(fecha: str, pais: str | None = None) -> dict`
 - `huella_falsa(problema) -> dict[str, float]`
+- `resolver_falso(problema: Problema, version: Version, run_id: str | None = None) -> ResultadoCiclo` — resuelve sin LLM con tres candidatos fijos y evalúa el mejor en producción.
 
 ## 4. `puertos.py`
 
 Todos los módulos importan de aquí, nunca directamente de `evaluacion` o `datos`. Cada puerto selecciona real o falso de forma independiente.
 
 ```python
-PUERTOS_FALSOS: dict[str, bool]  # claves: "evaluar", "huella", "contexto_de_fecha"
+PUERTOS_FALSOS: dict[str, bool]  # claves: "evaluar", "huella", "contexto_de_fecha", "resolver"
 ```
 
 Para cada función (`evaluar`, `huella`, `contexto_de_fecha`), intenta importar su módulo real por separado. Si `USAR_FALSOS=1` o ese import falla con `ImportError`, usa solo el falso de ese puerto e imprime una advertencia visible, por ejemplo `[FALSO] usando evaluar falso`. `PUERTOS_FALSOS` indica con un booleano por puerto cuál está usando falso (`True`) o real (`False`). Un fallo de importación de un puerto no debe cambiar los otros.
+
+El puerto `resolver` selecciona `agentes.ciclo.resolver_sync` o `resolver_falso` de forma independiente y registra su estado en `PUERTOS_FALSOS`.
 
 ## Hecho cuando
 
