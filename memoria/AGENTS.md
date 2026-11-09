@@ -73,7 +73,7 @@ versiones/v1/
   cambios.md
 ```
 
-- `crear_v0()`: capacidades todas apagadas, sin lecciones, `creada_por="equipo"`. Las instrucciones de v0 las escribe Paco.
+- `crear_v0()`: capacidades todas apagadas, sin lecciones, `creada_por="equipo"`; solo escribe `versiones/v0/config.json` y nunca toca `versiones/v0/instrucciones/`. Las instrucciones de v0 las escribe Paco.
 - `version_sin(id, leccion_id)`: copia `versiones/{id}` a `versiones/{id}-sin-{leccion_id}`, apaga su capacidad, quita su bloque de las instrucciones y su carpeta de lecciones. Paco no tiene que saber nada de ablación.
 
 ## `curador.py`
@@ -137,7 +137,7 @@ Asigna `id` (`L001`, `L002`…), `version_origen`, `problema_origen` y guarda co
 5. Escribe `cambios.md` (padre, lecciones nuevas, capacidades encendidas, reglas agregadas, `creada_por: sistema`).
 6. Guarda la versión en la tabla `versiones` y la devuelve.
 
-Si alguna vez editas a mano algo dentro de `versiones/`, va a `INTERVENCIONES.md`. Sin excepciones.
+Si alguna vez editas a mano algo dentro de `versiones/`, va a `INTERVENCIONES.md`. Sin excepciones. Solo Eduardo hace commit de `versiones/v1/` en adelante; Paco mantiene y puede hacer commit de `versiones/v0/instrucciones/`.
 
 **Ambicioso (solo si sobra tiempo):** que el paso 3 lo haga Codex sobre el código de la versión (por ejemplo una prueba nueva) en lugar de solo texto. Registrar en `CODEX_LOG.md`.
 

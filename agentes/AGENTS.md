@@ -85,7 +85,7 @@ Los agentes **no** tienen herramienta para evaluar ni para escribir lecciones.
 ## Instrucciones
 
 - Se leen de `versiones/{version.id}/instrucciones/{agente}.md` (`analista`, `proponente`, `diagnostico`). Nunca escritas en el código.
-- Tú escribes las de `v0`. **Deben ser genéricas:** cómo razonar, qué formato devolver, que las propuestas sean distintas entre sí. **Prohibido** mencionar umbrales por costos, fuga, columnas sospechosas o calendario. Eso es justo lo que el sistema tiene que aprender; si v0 ya lo sabe, la demo no demuestra nada.
+- Paco es dueño de `versiones/v0/instrucciones/*.md` y escribe esas instrucciones. **Deben ser genéricas:** cómo razonar, qué formato devolver, que las propuestas sean distintas entre sí. **Prohibido** mencionar umbrales por costos, fuga, columnas sospechosas o calendario. Eso es justo lo que el sistema tiene que aprender; si v0 ya lo sabe, la demo no demuestra nada.
 - Las versiones siguientes las escribe el constructor de Eduardo agregando reglas al final del archivo. Tu código no cambia entre versiones.
 - Lo que sí puede ir en v0: la lista de modelos e hiperparámetros permitidos y el catálogo de variables (sin explicar `calendario`).
 
@@ -103,7 +103,7 @@ for i in range(config.MAX_ITERACIONES):
     propuesta = proponente(descripcion, ultimo_diagnostico)   # 3 candidatos
     resultados = await evaluar en paralelo (asyncio.to_thread + Semaphore(3)),
                  modo="validacion", capacidades=version.capacidades
-    guardar cada resultado en almacen; agregar a ctx.historial
+    tras completar asyncio.gather, guardar cada resultado en almacen desde el hilo principal; agregar a ctx.historial
     actualizar mejor por costo_relativo; si no mejoró, sin_mejora += 1
     diag = diagnostico(resultados)
     si sin_mejora >= config.PARAR_SI_NO_MEJORA o not diag.seguir: romper
@@ -113,6 +113,7 @@ devolver ResultadoCiclo(..., resultado_produccion=produccion)
 
 - El presupuesto (`MAX_ITERACIONES`, `CANDIDATOS_POR_ITERACION`) es el mismo para todas las versiones. No lo cambies por versión.
 - Guarda cada llamada a un agente con `almacen.guardar_llamada(run_id, agente, entrada, salida, segundos)`.
+- Los resultados se guardan en `Almacen` después de `asyncio.gather`, en el hilo principal; nunca dentro de los hilos de `asyncio.to_thread`, porque SQLite no es seguro entre hilos.
 - Envuelve todo el problema en `with trace(f"{version.id}-{problema.id}")` para ver las trazas.
 - `run_id` por defecto: `f"{version.id}-{problema.id}-{timestamp}"`.
 

@@ -4,4 +4,4 @@ Una entrada por uso relevante. La rúbrica califica la aplicación de Codex (25%
 
 | Hora | Quién | Carpeta | Qué se le pidió | Qué produjo | Qué se aceptó / cambió a mano |
 | --- | --- | --- | --- | --- | --- |
-| 10:15 | Eduardo | comun/ | Generar `contratos.py` desde `comun/AGENTS.md` | Las 11 clases | Aceptado; se agregó un docstring |
+| 12:50 | Eduardo | docs | Actualizar documentación del repo con los acuerdos de puertos falsos, banco, versiones, SQLite, caché y paralelismo | Actualicé los AGENTS.md solicitados y agregué `.gitattributes` con merge union para los registros | Aceptado |

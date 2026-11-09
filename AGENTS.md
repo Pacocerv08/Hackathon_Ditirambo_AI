@@ -346,6 +346,7 @@ Confirmar con los organizadores qué acceso a Codex tenemos, y si "habilidades" 
 - Nadie cambia `comun/` sin avisar a los tres.
 - Antes de cada integración, correr `python -m experimento.humo` en la rama propia.
 - Commits pequeños y frecuentes.
+- **Commits de `versiones/`:** Eduardo hace commit de v1 en adelante; Paco puede hacer `git add`/commit solo de `versiones/v0/instrucciones/*.md`. `crear_v0()` escribe únicamente `versiones/v0/config.json` y nunca toca instrucciones.
 - Nunca subir `.env` ni llaves de API.
 - **Intervenciones humanas:** todo cambio manual a una versión, una lección o una instrucción se anota en `INTERVENCIONES.md` (qué, quién, cuándo, por qué). La rúbrica pide distinguirlas.
 - Si alguien se atrasa, los demás siguen con los falsos.

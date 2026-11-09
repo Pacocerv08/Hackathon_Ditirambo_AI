@@ -111,6 +111,8 @@ def costo_serie(real, pred, costos) -> float:
 ```
 
 - `costo_referencia`: el del modelo `referencia` con la misma partición y modo (cachéalo por problema y modo).
+- Protege el caché de `costo_referencia` con `threading.Lock`: `evaluar` puede ejecutarse desde 3 hilos a la vez.
+- Configura todos los modelos con `n_jobs=1` (LightGBM y cualquier otro estimador que acepte ese parámetro) para no saturar los núcleos.
 - `costo_relativo = costo / costo_referencia`. `resuelto = costo_relativo < config.UMBRAL_RESUELTO`.
 
 ## Resultado

@@ -47,11 +47,14 @@ Si una lección no aparece sola, **no** la escribas a mano en silencio: anótalo
 
 ```python
 def correr_banco(version_id: str, desactivar: list[str] = [], incluir_reservados: bool = True) -> pd.DataFrame:
+    # antes de correr: si any(PUERTOS_FALSOS.values()), lanzar un error claro y detenerse
     # por cada caso de config.BANCO (+ reservados):
     #   ciclo = resolver(problema, version)               # mismo presupuesto para todas
     #   prueba = evaluar(problema, ciclo.mejor_candidato, version.capacidades, modo="prueba")
     # columnas: version, caso, tipo, reservado, costo_relativo, resuelto, segundos
 ```
+
+`correr_banco` debe negarse a correr y lanzar un error claro si cualquier valor de `comun.puertos.PUERTOS_FALSOS` es `True`; el banco de evaluación requiere todos los puertos reales.
 
 - Corre los casos en paralelo con `asyncio.gather` y un `Semaphore(3)`.
 - Aquí **no** se cura ni se construye nada. El banco solo mide.

@@ -181,20 +181,13 @@ Mismas firmas que las funciones reales, con resultados plausibles y determinista
 
 ## 4. `puertos.py`
 
-Todos los módulos importan de aquí, nunca directamente de `evaluacion` o `datos`. Así se pasa de falsos a reales cambiando una variable de entorno.
+Todos los módulos importan de aquí, nunca directamente de `evaluacion` o `datos`. Cada puerto selecciona real o falso de forma independiente.
 
 ```python
-from comun import config
-
-if config.USAR_FALSOS:
-    from comun.falsos import evaluar_falso as evaluar
-    from comun.falsos import contexto_de_fecha_falso as contexto_de_fecha
-    from comun.falsos import huella_falsa as huella
-else:
-    from evaluacion.evaluador import evaluar
-    from datos.contexto import contexto_de_fecha
-    from datos.huella import huella
+PUERTOS_FALSOS: dict[str, bool]  # claves: "evaluar", "huella", "contexto_de_fecha"
 ```
+
+Para cada función (`evaluar`, `huella`, `contexto_de_fecha`), intenta importar su módulo real por separado. Si `USAR_FALSOS=1` o ese import falla con `ImportError`, usa solo el falso de ese puerto e imprime una advertencia visible, por ejemplo `[FALSO] usando evaluar falso`. `PUERTOS_FALSOS` indica con un booleano por puerto cuál está usando falso (`True`) o real (`False`). Un fallo de importación de un puerto no debe cambiar los otros.
 
 ## Hecho cuando
 
