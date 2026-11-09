@@ -7,6 +7,7 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 import importlib
 import json
+from pathlib import Path
 import sys
 import time
 
@@ -197,23 +198,27 @@ def _argumentos_cli(argumentos: list[str]) -> tuple[Problema, Version]:
     if len(argumentos) != 2:
         raise SystemExit("Uso: python -m agentes.ciclo <problema_id> <version_id>")
     problema_id, version_id = argumentos
+
+    ruta_config = Path(config.RUTA_VERSIONES) / version_id / "config.json"
+    if not ruta_config.is_file():
+        comando = 'python -c "from memoria.versiones import crear_v0; crear_v0()"' if version_id == "v0" else f"Crea {ruta_config} con memoria.versiones."
+        raise SystemExit(f"Falta la configuración de {version_id}: {ruta_config}.\nCorre: {comando}")
     try:
         problema = _cargar_desde_modulo(
             "datos.problemas", "cargar_problema", problema_id
         )
     except LookupError as exc:
-        if not config.USAR_FALSOS:
-            raise SystemExit(f"No se pudo cargar el problema {problema_id!r}: {exc}")
-        problema = None
+        raise SystemExit(
+            f"No existe el problema '{problema_id}'. Corre: "
+            "python -m datos.problemas para ver los ids disponibles."
+        ) from exc
 
     try:
         version = _cargar_desde_modulo(
             "memoria.versiones", "cargar_version", version_id
         )
     except LookupError as exc:
-        if not config.USAR_FALSOS:
-            raise SystemExit(f"No se pudo cargar la versión {version_id!r}: {exc}")
-        version = None
+        raise SystemExit(f"No se pudo cargar la versión {version_id!r}: {exc}.") from exc
 
     if problema is None or version is None:
         from comun.falsos import problema_falso
