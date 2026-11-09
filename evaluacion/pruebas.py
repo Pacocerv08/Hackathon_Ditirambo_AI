@@ -8,6 +8,8 @@ Si algo falla, se reportan los números tal cual: aquí no se ajusta ningún umb
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
+import pandas as pd
+
 from comun import config
 from comun.contratos import Candidato, Capacidades, Hiperparametro
 from comun.falsos import problema_falso
@@ -122,8 +124,8 @@ def pruebas_invalidas(problema) -> None:
         ("modelo que nunca existirá (xgboost)", problema,
          Candidato.model_construct(justificacion="x", modelo="xgboost", features=[],
                                    excluir_columnas=[], hiperparametros=[]), "validacion"),
-        ("arbol en serie (no implementado todavía)", problema_falso("serie"),
-         Candidato(justificacion="x", modelo="arbol"), "validacion"),
+        ("serie sin variables válidas", cargar_problema(PROBLEMA_SERIE),
+         Candidato(justificacion="x", modelo="lightgbm", features=["clima"]), "validacion"),
         ("num_leaves no entero", problema, Candidato(justificacion="x", modelo="lightgbm",
                                                     hiperparametros=[Hiperparametro(nombre="num_leaves", valor=15.5)]),
          "validacion"),
@@ -269,18 +271,93 @@ def prueba_huella(problemas) -> None:
               f"{hs['churn_a']['max_auc_columna']:.3f}")
     verificar("huella credito_a: max_auc_columna <= 0.95", hs["credito_a"]["max_auc_columna"] <= 0.95,
               f"{hs['credito_a']['max_auc_columna']:.3f}")
-    try:
-        huella(problema_falso("serie"))
-        verificar("huella serie: error claro", False, "no dio error")
-    except NotImplementedError as e:
-        verificar("huella serie: error claro", True, str(e))
+
+
+PROBLEMA_SERIE = "demanda_a"
+# Criterio fijado antes de ver resultados (plan aprobado). No se ajusta.
+REDUCCION_MINIMA_FESTIVOS = 0.20   # con calendario, costo_dias_festivos baja al menos 20%
+
+
+def prueba_fuga_series(problema) -> None:
+    """Cambiar la demanda del día t no debe cambiar ninguna variable del día t ni de días anteriores."""
+    from evaluacion.variables import CATALOGO, construir_variables
+
+    df = cargar_datos(problema).reset_index(drop=True)
+    cap = Capacidades(variables_calendario=True)
+    X0, _ = construir_variables(problema, df, list(CATALOGO), cap)
+    for t in (100, 500, 900):
+        df2 = df.copy()
+        df2.loc[t, problema.objetivo] += 1000
+        X1, _ = construir_variables(problema, df2, list(CATALOGO), cap)
+        sin_cambio = X1.iloc[:t + 1].equals(X0.iloc[:t + 1])
+        cambia_despues = not X1.iloc[t + 1:].equals(X0.iloc[t + 1:])   # la prueba no es trivial
+        verificar(f"series sin fuga: cambiar el día {t} no altera variables de días <= {t}",
+                  sin_cambio and cambia_despues,
+                  f"pasado intacto={sin_cambio}, futuro cambia={cambia_despues}")
+
+
+def prueba_demanda(problema) -> None:
+    df = cargar_datos(problema)
+    pedazos = particion(problema, df)
+    fechas = pd.to_datetime(df[problema.columna_fecha])
+    f = {k: fechas.loc[v] for k, v in pedazos.items()}
+    verificar("demanda: partición temporal (entrenamiento < producción < prueba)",
+              f["entrenamiento"].max() < f["produccion"].min() and f["produccion"].max() < f["prueba"].min()
+              and sum(len(v) for v in pedazos.values()) == len(df),
+              " | ".join(f"{k} {v.min().date()}..{v.max().date()} ({len(v)})" for k, v in f.items()))
+
+    ref = Candidato(justificacion="repetir hace 7 días", modelo="referencia")
+    base = ["rezagos", "dia_semana"]
+    sin_cal = Candidato(justificacion="lightgbm con rezagos", modelo="lightgbm", features=base)
+    con_cal = Candidato(justificacion="lightgbm con calendario", modelo="lightgbm", features=base + ["calendario"])
+    filas = [("referencia", ref, Capacidades()),
+             ("lightgbm rezagos+dia_semana", sin_cal, Capacidades()),
+             ("lightgbm pide calendario, sin capacidad", con_cal, Capacidades()),
+             ("lightgbm + calendario (con capacidad)", con_cal, Capacidades(variables_calendario=True))]
+    print(f"\n=== {problema.id}: serie (costo_faltante=3, costo_sobrante=1) ===")
+    print(f"{'modo':<11}{'candidato':<42}{'costo':>9}{'ref':>9}{'relativo':>10}{'resuelto':>10}"
+          f"{'mae':>7}{'sesgo':>7}{'costo_fest':>11}{'porción':>9}{'seg':>6}  alertas / error")
+    r = {}
+    for modo in MODOS:
+        for nombre, cand, cap in filas:
+            res = correr(f"{problema.id} / {nombre} / {modo}", problema, cand, cap, modo)
+            r[(modo, nombre)] = res
+            m = res.metricas
+            print(f"{modo:<11}{nombre:<42}{res.costo:>9.1f}{res.costo_referencia:>9.1f}{res.costo_relativo:>10.3f}"
+                  f"{('sí' if res.resuelto else 'no'):>10}{m.get('mae', float('nan')):>7.1f}"
+                  f"{m.get('sesgo', float('nan')):>7.1f}{m.get('costo_dias_festivos', float('nan')):>11.1f}"
+                  f"{m.get('porcion_costo_dias_festivos', float('nan')):>9.3f}{res.segundos:>6.2f}  "
+                  f"{res.error or '; '.join(res.alertas)}")
+
+    for modo in MODOS:
+        x = r[(modo, "referencia")]
+        verificar(f"demanda: referencia costo_relativo == 1.0 ({modo})",
+                  x.error is None and x.costo_relativo == 1.0, f"{x.costo_relativo}")
+    x = r[("validacion", "lightgbm pide calendario, sin capacidad")]
+    verificar("demanda: calendario sin capacidad -> alerta", "calendario no disponible en esta versión" in x.alertas,
+              f"{x.alertas}")
+    for modo in ("validacion", "prueba"):
+        a = r[(modo, "lightgbm rezagos+dia_semana")].metricas.get("costo_dias_festivos", float("nan"))
+        b = r[(modo, "lightgbm + calendario (con capacidad)")].metricas.get("costo_dias_festivos", float("nan"))
+        reduccion = 1 - b / a if a else float("nan")
+        verificar(f"demanda: calendario baja costo_dias_festivos >= {REDUCCION_MINIMA_FESTIVOS:.0%} ({modo})",
+                  reduccion >= REDUCCION_MINIMA_FESTIVOS, f"{a:.1f} -> {b:.1f}, reducción {reduccion:.1%}")
+
+    r1 = evaluar(problema, con_cal, Capacidades(variables_calendario=True), "validacion")
+    r2 = evaluar(problema, con_cal, Capacidades(variables_calendario=True), "validacion")
+    verificar("demanda: dos llamadas idénticas, mismo costo", r1.costo == r2.costo, f"{r1.costo} vs {r2.costo}")
+    peor = r[("prueba", "lightgbm rezagos+dia_semana")].peores_casos[:5]
+    print("  peores días en prueba sin calendario:", [(p.referencia, p.real, round(p.predicho), p.costo) for p in peor])
 
 
 def main() -> int:
     problema = cargar_problema(PROBLEMA)
     churn = cargar_problema(PROBLEMA_FUGA)
+    demanda = cargar_problema(PROBLEMA_SERIE)
     prueba_contexto()
-    prueba_huella([problema, churn])
+    prueba_huella([problema, churn, demanda])
+    prueba_fuga_series(demanda)
+    prueba_demanda(demanda)
     prueba_particion(problema)
     prueba_particion(churn)
     tabla_principal(problema)

@@ -13,8 +13,9 @@ import time
 
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import StratifiedKFold, cross_val_predict, train_test_split
+from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit, cross_val_predict, train_test_split
 
 from comun import config
 from comun.contratos import Candidato, Capacidades, Modo, PeorCaso, Problema, Resultado
@@ -22,6 +23,7 @@ from datos.columnas_futuras import columnas_futuras
 from datos.problemas import cargar_datos
 from evaluacion import costos as c
 from evaluacion.registro import construir_modelo
+from evaluacion.variables import FILAS_DE_ARRANQUE, construir_variables, dias_especiales
 
 MODOS = ("validacion", "produccion", "prueba")
 N_PEORES_CASOS = 10
@@ -39,11 +41,19 @@ def particion(problema: Problema, df: pd.DataFrame | None = None) -> dict[str, p
     prueba = proporcion_prueba del total; produccion = proporcion_produccion del resto;
     entrenamiento = lo que queda. Ambos cortes estratificados por el objetivo con la semilla del problema.
     """
-    if problema.tipo_tarea != "clasificacion":
-        raise NotImplementedError("partición de series no implementada todavía")
     if df is None:
         df = cargar_datos(problema)
     p = problema.particion
+    if problema.tipo_tarea == "serie":
+        # prueba: después de fecha_corte_prueba; producción: último proporcion_produccion de lo
+        # anterior; entrenamiento: lo que queda. Sin barajar: siempre el pasado antes del futuro.
+        if p.fecha_corte_prueba is None:
+            raise ValueError(f"'{problema.id}': una serie necesita particion.fecha_corte_prueba")
+        fechas = pd.to_datetime(df[problema.columna_fecha])
+        antes = df.index[fechas <= pd.Timestamp(p.fecha_corte_prueba)]
+        n_prod = int(round(len(antes) * p.proporcion_produccion))
+        return {"entrenamiento": antes[:len(antes) - n_prod], "produccion": antes[len(antes) - n_prod:],
+                "prueba": df.index[fechas > pd.Timestamp(p.fecha_corte_prueba)]}
     y = df[problema.objetivo]
     resto, prueba = train_test_split(df.index, test_size=p.proporcion_prueba,
                                      stratify=y, random_state=p.semilla)
@@ -75,19 +85,19 @@ def _ruido_en_columnas_futuras(problema: Problema, df: pd.DataFrame,
 
 def _llave_referencia(problema: Problema, modo: str) -> tuple:
     p = problema.particion
-    return (problema.id, p.semilla, modo, problema.costos.costo_fn,
+    k = problema.costos
+    return (problema.id, p.semilla, modo, k.costo_fn, k.costo_faltante, k.costo_sobrante,
             p.folds, p.proporcion_prueba, p.proporcion_produccion, p.fecha_corte_prueba)
 
 
-def costo_referencia(problema: Problema, modo: str, y_evaluado: np.ndarray) -> float:
-    """Costo de 'nunca actuar' en el pedazo evaluado = costo_fn * positivos. No depende del umbral.
+def costo_referencia(problema: Problema, modo: str, calcular) -> float:
+    """calcular() da el costo de la referencia en el pedazo evaluado. Clasificación: nunca actuar
+    (costo_fn * positivos, no depende del umbral). Serie: repetir el valor de hace 7 días.
     Se guarda en caché (con candado: evaluar corre desde varios hilos)."""
     llave = _llave_referencia(problema, modo)
     with _candado_referencia:
         if llave not in _cache_referencia:
-            ceros = np.zeros(len(y_evaluado))
-            _cache_referencia[llave] = c.costo_clasificacion(
-                y_evaluado, ceros, c.UMBRAL_POR_DEFECTO, problema.costos.costo_fn, problema.costos.costo_fp)
+            _cache_referencia[llave] = float(calcular())
         return _cache_referencia[llave]
 
 
@@ -146,8 +156,8 @@ def evaluar(problema: Problema, candidato: Candidato, capacidades: Capacidades,
         candidato = Candidato.model_validate(candidato.model_dump())
         capacidades = Capacidades.model_validate(capacidades.model_dump())
 
-        resultado = _evaluar_clasificacion(problema, candidato, capacidades, modo, version,
-                                           candidato_id, alertas)
+        evaluar_tarea = _evaluar_serie if problema.tipo_tarea == "serie" else _evaluar_clasificacion
+        resultado = evaluar_tarea(problema, candidato, capacidades, modo, version, candidato_id, alertas)
     except Exception as e:
         resultado = Resultado(
             problema_id=problema_id, candidato_id=candidato_id, version=str(version), modo=modo_valido,
@@ -200,7 +210,8 @@ def _evaluar_clasificacion(problema: Problema, candidato: Candidato, capacidades
         raise ValueError("no queda ninguna variable después de excluir columnas")
 
     y_eval = df.loc[filas_evaluadas, problema.objetivo].to_numpy()
-    referencia = costo_referencia(problema, modo, y_eval)
+    referencia = costo_referencia(problema, modo, lambda: c.costo_clasificacion(
+        y_eval, np.zeros(len(y_eval)), c.UMBRAL_POR_DEFECTO, problema.costos.costo_fn, problema.costos.costo_fp))
     if referencia == 0:
         raise ValueError(f"el costo de la referencia es 0 en modo {modo} (no hay positivos en el "
                          f"pedazo evaluado); no se puede calcular el costo relativo")
@@ -240,6 +251,75 @@ def _evaluar_clasificacion(problema: Problema, candidato: Candidato, capacidades
                        predicho=float(proba[i]), costo=float(por_fila[i]))
               for i in orden if por_fila[i] > 0]
 
+    relativo = costo / referencia
+    return Resultado(
+        problema_id=problema.id, candidato_id=candidato_id, version=str(version), modo=modo,
+        costo=costo, costo_referencia=referencia, costo_relativo=relativo,
+        resuelto=relativo < config.UMBRAL_RESUELTO, metricas=metricas, alertas=alertas,
+        peores_casos=peores)
+
+
+def _evaluar_serie(problema: Problema, candidato: Candidato, capacidades: Capacidades,
+                   modo: str, version: str, candidato_id: str, alertas: list[str]) -> Resultado:
+    modelo, ignorados = construir_modelo(problema, candidato)        # None = referencia (hace 7 días)
+    alertas.extend(f"hiperparametro ignorado: {h}" for h in ignorados)
+    if candidato.excluir_columnas:
+        alertas.append("excluir_columnas no aplica a series: se ignora")
+    df = cargar_datos(problema).reset_index(drop=True)
+    y = df[problema.objetivo].astype(float)
+    pronostico_referencia = y.shift(7)
+    # Sin los primeros 28 días (rezagos incompletos), para todos los modelos por igual.
+    pedazos = {k: v[v >= FILAS_DE_ARRANQUE] for k, v in particion(problema, df).items()}
+    if modelo is None:
+        if candidato.features:
+            alertas.append("la referencia no usa variables: features ignoradas")
+        X = None
+    else:
+        X, alertas_variables = construir_variables(problema, df, candidato.features, capacidades)
+        alertas.extend(alertas_variables)
+
+    def pronosticar(filas_ajuste, filas_pronostico) -> np.ndarray:
+        if modelo is None:
+            return pronostico_referencia.loc[filas_pronostico].to_numpy()
+        m = clone(modelo).fit(X.loc[filas_ajuste], y.loc[filas_ajuste])
+        return m.predict(X.loc[filas_pronostico])
+
+    if modo == "validacion":        # TimeSeriesSplit: cada fold entrena solo con el pasado
+        ent = pedazos["entrenamiento"]
+        partes = [(ent[te], pronosticar(ent[tr], ent[te]))
+                  for tr, te in TimeSeriesSplit(n_splits=3).split(ent)]
+        filas = pd.Index(np.concatenate([f for f, _ in partes]))
+        pred = np.concatenate([p for _, p in partes])
+    elif modo == "produccion":
+        filas = pedazos["produccion"]
+        pred = pronosticar(pedazos["entrenamiento"], filas)
+    else:  # prueba
+        filas = pedazos["prueba"]
+        pred = pronosticar(pedazos["entrenamiento"].append(pedazos["produccion"]), filas)
+    pred = np.maximum(np.asarray(pred, dtype=float), 0.0)    # la demanda no puede ser negativa
+
+    k = problema.costos
+    real = y.loc[filas].to_numpy()
+    referencia = costo_referencia(problema, modo, lambda: c.costo_serie(
+        real, pronostico_referencia.loc[filas].to_numpy(), k.costo_faltante, k.costo_sobrante))
+    if referencia == 0:
+        raise ValueError(f"el costo de la referencia es 0 en modo {modo}; "
+                         f"no se puede calcular el costo relativo")
+    por_dia = c.costo_serie_por_dia(real, pred, k.costo_faltante, k.costo_sobrante)
+    costo = float(por_dia.sum())
+    especiales = dias_especiales(problema, df[problema.columna_fecha])[filas.to_numpy()]
+    costo_especiales = float(por_dia[especiales].sum())
+    metricas = {
+        "mae": float(np.abs(pred - real).mean()),
+        "sesgo": float((pred - real).mean()),
+        "costo_dias_festivos": costo_especiales,                    # festivo, quincena o evento
+        "porcion_costo_dias_festivos": costo_especiales / costo if costo > 0 else 0.0,
+    }
+    fechas = pd.to_datetime(df.loc[filas, problema.columna_fecha]).dt.strftime("%Y-%m-%d").to_numpy()
+    orden = np.lexsort((fechas, -por_dia))[:N_PEORES_CASOS]       # mayor costo; empate: fecha anterior
+    peores = [PeorCaso(referencia=str(fechas[i]), real=float(real[i]), predicho=float(pred[i]),
+                       costo=float(por_dia[i]))
+              for i in orden if por_dia[i] > 0]
     relativo = costo / referencia
     return Resultado(
         problema_id=problema.id, candidato_id=candidato_id, version=str(version), modo=modo,

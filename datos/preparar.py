@@ -118,9 +118,57 @@ def preparar_churn() -> Path:
     return destino
 
 
+SEMILLA_DEMANDA = 42
+PROPORCION_PRUEBA_DEMANDA = 0.2
+
+
+def preparar_demanda() -> Path:
+    """Serie sintética diaria de una tienda en México -> datos/procesados/demanda.parquet.
+
+    INTERVENCIÓN DEL EQUIPO (se declara): la serie es sintética, construida a propósito con efectos de
+    calendario que un modelo solo de rezagos no puede explicar.
+      demanda = (100 + 0.02 * día) * semanal * calendario + ruido N(0, 5), redondeada y >= 0
+      semanal:    sábado y domingo x1.2, lunes x0.9
+      calendario: quincena (día 15 y último del mes) x1.3, festivo MX (holidays) x0.6, Buen Fin x1.8
+    El calendario sale de datos.contexto.contexto_de_fecha (misma fuente que la variable 'calendario').
+    Imprime la fecha_corte_prueba (último 20% de las fechas es prueba) que va en demanda_a.json.
+    """
+    from datos.contexto import contexto_de_fecha
+
+    destino = RUTA_PROCESADOS / "demanda.parquet"
+    fechas = pd.date_range("2022-01-01", "2024-12-31", freq="D")
+    rng = np.random.default_rng(SEMILLA_DEMANDA)
+    dia = np.arange(len(fechas))
+    base = 100 + 0.02 * dia
+    semanal = np.select([fechas.dayofweek >= 5, fechas.dayofweek == 0], [1.2, 0.9], 1.0)
+    calendario = np.ones(len(fechas))
+    for i, f in enumerate(fechas):
+        ctx = contexto_de_fecha(f.strftime("%Y-%m-%d"), "MX")
+        if ctx["es_quincena"]:
+            calendario[i] *= 1.3
+        if ctx["es_festivo"]:
+            calendario[i] *= 0.6
+        if ctx["evento"] == "Buen Fin":
+            calendario[i] *= 1.8
+    ruido = rng.normal(0, 5, len(fechas))
+    demanda = np.maximum(0, np.round(base * semanal * calendario + ruido)).astype("int64")
+    df = pd.DataFrame({"fecha": fechas, "demanda": demanda})
+
+    corte = fechas[int(len(fechas) * (1 - PROPORCION_PRUEBA_DEMANDA)) - 1]
+    RUTA_PROCESADOS.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(destino, index=False)
+    print(f"guardado {destino}: {len(df)} días ({fechas[0].date()} a {fechas[-1].date()}), "
+          f"{destino.stat().st_size / 1024:.1f} KB")
+    print(f"demanda: media {demanda.mean():.1f}, min {demanda.min()}, max {demanda.max()}; "
+          f"días especiales: {int((calendario != 1).sum())}")
+    print(f"fecha_corte_prueba = {corte.date()} (prueba: {int((fechas > corte).sum())} días)")
+    return destino
+
+
 def main() -> None:
     preparar_credito()
     preparar_churn()
+    preparar_demanda()
 
 
 if __name__ == "__main__":

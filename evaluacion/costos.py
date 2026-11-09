@@ -38,6 +38,34 @@ def costo_por_fila(y_real, probabilidad, umbral: float, costo_fn: float, costo_f
     return np.where((y == 1) & ~actuar, costo_fn, 0.0) + np.where((y == 0) & actuar, costo_fp, 0.0)
 
 
+def costo_serie_por_dia(real, pronostico, costo_faltante: float, costo_sobrante: float) -> np.ndarray:
+    """Costo de cada día = costo_faltante * max(real - pron, 0) + costo_sobrante * max(pron - real, 0)."""
+    r, p = _validar_serie(real, pronostico, costo_faltante, costo_sobrante)
+    return costo_faltante * np.maximum(r - p, 0) + costo_sobrante * np.maximum(p - r, 0)
+
+
+def costo_serie(real, pronostico, costo_faltante: float, costo_sobrante: float) -> float:
+    """Costo total de una serie de pronósticos."""
+    return float(costo_serie_por_dia(real, pronostico, costo_faltante, costo_sobrante).sum())
+
+
+def _validar_serie(real, pronostico, costo_faltante, costo_sobrante):
+    for nombre, valor in (("costo_faltante", costo_faltante), ("costo_sobrante", costo_sobrante)):
+        if valor is None or not np.isfinite(valor) or valor < 0:
+            raise ValueError(f"{nombre} debe ser un número >= 0, llegó {valor!r}")
+    r = np.asarray(real, dtype=float)
+    p = np.asarray(pronostico, dtype=float)
+    if r.ndim != 1 or p.ndim != 1:
+        raise ValueError(f"real y pronostico deben ser vectores, llegaron con forma {r.shape} y {p.shape}")
+    if len(r) != len(p):
+        raise ValueError(f"real tiene {len(r)} valores y pronostico {len(p)}; deben ser iguales")
+    if len(r) == 0:
+        raise ValueError("real y pronostico están vacíos")
+    if not (np.isfinite(r).all() and np.isfinite(p).all()):
+        raise ValueError("real y pronostico no pueden tener NaN ni infinitos")
+    return r, p
+
+
 def _validar_costos(costo_fn, costo_fp) -> None:
     for nombre, valor in (("costo_fn", costo_fn), ("costo_fp", costo_fp)):
         if valor is None or not np.isfinite(valor) or valor < 0:

@@ -1,10 +1,11 @@
 """Registro de modelos: nombre del candidato -> estimador de scikit-learn sin entrenar.
 
-Clasificación: 'referencia', 'logistica', 'arbol' y 'lightgbm'. Series: todavía ninguno.
+Clasificación: 'referencia', 'logistica', 'arbol' y 'lightgbm'. Series: 'referencia' (la calcula el
+evaluador: valor de hace 7 días), 'arbol' y 'lightgbm' como regresores sin calibrar.
 Importar este módulo no lee datos ni entrena nada.
 """
 import numpy as np
-from lightgbm import LGBMClassifier
+from lightgbm import LGBMClassifier, LGBMRegressor
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer, make_column_selector
@@ -12,7 +13,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from comun.contratos import Candidato, Hiperparametro, Problema
 
@@ -39,7 +40,8 @@ HIPERPARAMETROS_PERMITIDOS = {
                  "num_leaves": (_entero, 2, 1024, False),
                  "min_child_samples": (_entero, 1, 1000, False)},
 }
-IMPLEMENTADOS = {"clasificacion": {"referencia", "logistica", "arbol", "lightgbm"}, "serie": set()}
+IMPLEMENTADOS = {"clasificacion": {"referencia", "logistica", "arbol", "lightgbm"},
+                 "serie": {"referencia", "arbol", "lightgbm"}}
 
 
 class ErrorRegistro(ValueError):
@@ -121,6 +123,14 @@ def construir_modelo(problema: Problema, candidato: Candidato):
         raise ErrorRegistro(f"modelo '{modelo}' no implementado para {tarea}; disponibles: {disponibles}")
 
     valores, ignorados = _leer_hiperparametros(modelo, candidato.hiperparametros)
+    if tarea == "serie":
+        # referencia de serie = repetir el valor de hace 7 días; la calcula el evaluador (None aquí)
+        if modelo == "referencia":
+            return None, ignorados
+        semilla = problema.particion.semilla
+        if modelo == "arbol":
+            return DecisionTreeRegressor(random_state=semilla, **valores), ignorados
+        return LGBMRegressor(verbose=-1, random_state=semilla, n_jobs=1, **valores), ignorados
     if modelo == "referencia":
         return Referencia(), ignorados
 
