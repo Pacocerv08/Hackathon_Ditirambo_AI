@@ -7,7 +7,9 @@ import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-if not os.getenv("OPENAI_API_KEY"):
+from comun import config
+
+if config.LLM_BACKEND == "api" and not os.getenv("OPENAI_API_KEY"):
     print("Falta OPENAI_API_KEY. Configúrala para ejecutar este smoke test.")
     raise SystemExit(2)
 
@@ -24,6 +26,7 @@ from memoria.almacen import Almacen
 
 
 def main():
+    print(f"BACKEND: {config.LLM_BACKEND}")
     print(f"MODELOS: {config.MODELOS}")
     problema = problema_falso("clasificacion")
     directorio = TemporaryDirectory()

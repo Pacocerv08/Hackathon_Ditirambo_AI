@@ -11,11 +11,12 @@ from unittest.mock import patch
 
 from agents import AgentOutputSchema
 
-from agentes import analista, diagnostico, fijo, proponente
+from agentes import analista, diagnostico, entradas, fijo, proponente
 from agentes.contexto import ContextoCiclo
 from agentes.esquemas import Descripcion, Diagnostico, Propuesta
 from agentes.herramientas import _compacto
-from comun.contratos import Capacidades, Version
+from comun import config
+from comun.contratos import Candidato, Capacidades, Hiperparametro, PeorCaso, Resultado, Version
 from comun.falsos import problema_falso
 from memoria.almacen import Almacen
 from agentes.ciclo import resolver_sync
@@ -75,7 +76,11 @@ def main():
     def proponente_fallback():
         async def run():
             ctx = _contexto()
-            ctx.historial.extend((c, None) for c in fijo.proponer(ctx).candidatos)
+            ctx.historial.extend((c, Resultado(
+                problema_id=ctx.problema.id, candidato_id=f"previo-{i}", version="v0",
+                modo="validacion", costo=1, costo_referencia=2, costo_relativo=0.5,
+                resuelto=True,
+            )) for i, c in enumerate(fijo.proponer(ctx).candidatos))
             with patch.object(proponente, "_llamar_modelo", _fallo):
                 resultado = await proponente.proponer_con_llm(ctx, Descripcion(resumen="x", riesgos=[]), None)
             assert _candidatos_distintos(resultado.candidatos)
@@ -87,7 +92,11 @@ def main():
         async def run():
             ctx = _contexto()
             previos = fijo.proponer(ctx).candidatos
-            ctx.historial.extend((c, None) for c in previos)
+            ctx.historial.extend((c, Resultado(
+                problema_id=ctx.problema.id, candidato_id=f"previo-{i}", version="v0",
+                modo="validacion", costo=1, costo_referencia=2, costo_relativo=0.5,
+                resuelto=True,
+            )) for i, c in enumerate(previos))
             with patch.object(proponente, "_llamar_modelo", _duplicados):
                 resultado = await proponente.proponer_con_llm(ctx, Descripcion(resumen="x", riesgos=[]), None)
             assert _candidatos_distintos(resultado.candidatos)
@@ -113,10 +122,150 @@ def main():
             AgentOutputSchema(modelo, strict_json_schema=True).json_schema()
     verificar("esquemas estrictos offline", esquema_estricto)
 
+    def entradas_autocontenidas():
+        for tipo in ("clasificacion", "serie"):
+            ctx = _contexto(tipo)
+            r = Resultado(problema_id=ctx.problema.id, candidato_id="c1", version="v0",
+                          modo="validacion", costo=1, costo_referencia=2,
+                          costo_relativo=0.5, resuelto=True)
+            textos = [entradas.entrada_analista(ctx),
+                      entradas.entrada_proponente(ctx, Descripcion(resumen="x", riesgos=[]), None),
+                      entradas.entrada_diagnostico(ctx, [r])]
+            for texto in textos:
+                assert len(texto) <= 12000
+                assert "## Problema" in texto
+            assert all("## " in texto for texto in textos)
+            assert "## Resumen de datos" in textos[0] and "## Lecciones activas" in textos[0]
+            assert "## Ya probado (no repetir)" in textos[1]
+            assert "## Peores casos" in textos[2]
+        assert "Contexto de fechas" in entradas.entrada_diagnostico(_contexto("serie"), [r])
+    verificar("entradas autocontenidas para clasificación y serie", entradas_autocontenidas)
+
+    def entrada_diagnostico_elige_validos():
+        def resultado(ctx, cid, relativo, error=None, fecha="2026-01-15"):
+            return Resultado(
+                problema_id=ctx.problema.id, candidato_id=cid, version="v0", modo="validacion",
+                costo=relativo, costo_referencia=1, costo_relativo=relativo, resuelto=False,
+                error=error,
+                peores_casos=[PeorCaso(referencia=fecha, real=10, predicho=2, costo=8)],
+            )
+        ctx = _contexto("serie")
+        con_error = resultado(ctx, "error", 999.0, "falló")
+        valido_alto = resultado(ctx, "valido-alto", 0.8, fecha="2026-02-01")
+        valido_bajo = resultado(ctx, "valido-bajo", 0.2, fecha="2026-01-15")
+        ctx.historial.extend((Candidato(modelo="referencia", justificacion=cid), r)
+                             for cid, r in (("error", con_error), ("valido-alto", valido_alto), ("valido-bajo", valido_bajo)))
+        texto = entradas.entrada_diagnostico(ctx, [con_error, valido_alto, valido_bajo])
+        seccion = texto.split("## Peores casos\n", 1)[1].split("\n\n## ", 1)[0]
+        assert "valido-bajo" in seccion and "valido-alto" in seccion
+        assert "error\"" not in seccion and "999.0" not in seccion
+        fechas = texto.split("## Contexto de fechas\n", 1)[1].split("\n\n## ", 1)[0]
+        assert fechas not in ("[]", "no disponible") and "2026-01-15" in fechas
+
+        fallidos = entradas.entrada_diagnostico(ctx, [con_error])
+        assert "sin candidatos válidos en este lote" in fallidos
+    verificar("diagnóstico elige dos válidos de menor costo y fechas reales", entrada_diagnostico_elige_validos)
+
+    def entrada_proponente_configuraciones():
+        ctx = _contexto()
+        for i in range(30):
+            candidato = Candidato(
+                modelo="logistica" if i == 0 else "arbol",
+                justificacion=f"intento {i}",
+                features=[f"feature_{i}"],
+                excluir_columnas=[f"col_{i}"],
+                hiperparametros=[Hiperparametro(nombre="C", valor=0.75 + i)],
+            )
+            resultado = Resultado(
+                problema_id=ctx.problema.id, candidato_id=f"c{i}", version="v0", modo="validacion",
+                costo=1, costo_referencia=2, costo_relativo=0.5 + i / 100,
+                resuelto=True, alertas=["a", "b", "c", "d"],
+            )
+            ctx.historial.append((candidato, resultado))
+        texto = entradas.entrada_proponente(ctx, Descripcion(resumen="breve", riesgos=[]), None)
+        seccion = texto.split("## Ya probado (no repetir)\n", 1)[1].split("\n\n## ", 1)[0]
+        assert "logistica" in seccion and '"valor":0.75' in seccion
+        assert len(texto) <= 12000
+        assert texto.index("## Ya probado") < texto.index("## Último diagnóstico") < texto.index("## Lecciones activas")
+        assert "justificacion" not in seccion
+    verificar("proponente incluye configuraciones breves ya probadas", entrada_proponente_configuraciones)
+
+    def backends_adaptadores():
+        async def run():
+            ctx = _contexto()
+            obj_a = Descripcion(resumen="fijo", riesgos=[])
+            obj_p = fijo.proponer(_contexto())
+            obj_d = Diagnostico(que_fallo="x", por_que="y", evidencia=[], que_probar="z", seguir=True)
+            esperados = {"analista": (obj_a, Descripcion), "proponente": (obj_p, Propuesta), "diagnostico": (obj_d, Diagnostico)}
+            for modulo, nombre, funcion, args in (
+                (analista, "analista", analista._llamar_modelo, (ctx, "entrada")),
+                (proponente, "proponente", proponente._llamar_modelo, (ctx, "entrada")),
+                (diagnostico, "diagnostico", diagnostico._llamar_modelo, (ctx, "entrada")),
+            ):
+                llamadas = []
+                async def falso(agente, instrucciones, entrada, esquema, **kwargs):
+                    llamadas.append((agente, instrucciones, entrada, esquema))
+                    return esperados[agente][0]
+                with patch.object(config, "LLM_BACKEND", "codex"), patch.object(modulo, "allamar_modelo", falso):
+                    salida = await funcion(*args)
+                llamada = llamadas[0]
+                assert salida is esperados[nombre][0], (nombre, type(salida), llamadas)
+                assert llamada[0] == nombre and "En este entorno no tienes herramientas" in llamada[1]
+                assert llamada[2] and llamada[3] is esperados[nombre][1]
+
+            for modulo, funcion, args in (
+                (analista, analista._llamar_modelo, (ctx, "entrada")),
+                (proponente, proponente._llamar_modelo, (ctx, "entrada")),
+                (diagnostico, diagnostico._llamar_modelo, (ctx, "entrada")),
+            ):
+                with patch.object(config, "LLM_BACKEND", "codex"), patch.object(modulo, "allamar_modelo", _fallo):
+                    try:
+                        await funcion(*args)
+                    except RuntimeError:
+                        pass
+                    else:
+                        raise AssertionError("se esperaba el fallo simulado")
+
+            with patch.object(config, "LLM_BACKEND", "codex"), patch.object(analista, "allamar_modelo", _fallo):
+                assert isinstance(await analista.describir(ctx), Descripcion)
+            with patch.object(config, "LLM_BACKEND", "codex"), patch.object(proponente, "allamar_modelo", _fallo):
+                assert _candidatos_distintos((await proponente.proponer_con_llm(
+                    ctx, Descripcion(resumen="x", riesgos=[]), None
+                )).candidatos)
+            with patch.object(config, "LLM_BACKEND", "codex"), patch.object(diagnostico, "allamar_modelo", _fallo):
+                assert (await diagnostico.diagnosticar(ctx, [])).seguir
+
+            # El backend API usa Runner local y nunca llama allamar_modelo.
+            class RunnerFalso:
+                @staticmethod
+                async def run(agente, entrada, **kwargs):
+                    return type("Salida", (), {"final_output": esperados[agente.name.lower() if agente.name != "Diagnóstico" else "diagnostico"][0]})()
+            for modulo, nombre, funcion, args in (
+                (analista, "analista", analista._llamar_modelo, (ctx, "entrada")),
+                (proponente, "proponente", proponente._llamar_modelo, (ctx, "entrada")),
+                (diagnostico, "diagnostico", diagnostico._llamar_modelo, (ctx, "entrada")),
+            ):
+                with patch.object(config, "LLM_BACKEND", "api"), \
+                     patch.object(modulo, "allamar_modelo", side_effect=AssertionError("allamar_modelo en API")), \
+                     patch.object(modulo, "Runner", RunnerFalso):
+                    await funcion(*args)
+        asyncio.run(run())
+    verificar("adaptadores Codex y API sin llamadas reales", backends_adaptadores)
+
     def ciclo_y_almacen():
         with TemporaryDirectory() as directorio:
             ruta = str(Path(directorio) / "memoria.db")
+            async def descripcion_fija(ctx):
+                return Descripcion(resumen="prueba local", riesgos=[])
+            async def diagnostico_fijo(ctx, resultados):
+                return Diagnostico(que_fallo="", por_que="", evidencia=[], que_probar="", seguir=False)
+            async def propuesta_fija_ciclo(ctx, descripcion, ultimo):
+                return fijo.proponer(ctx)
             with patch("agentes.ciclo.Almacen", lambda: Almacen(ruta)), \
+                 patch.object(config, "LLM_BACKEND", "api"), \
+                 patch("agentes.ciclo.describir", descripcion_fija), \
+                 patch("agentes.ciclo.proponer_con_llm", propuesta_fija_ciclo), \
+                 patch("agentes.ciclo.diagnosticar", diagnostico_fijo), \
                  patch("agentes.ciclo.evaluar", wraps=__import__("comun.falsos", fromlist=["evaluar_falso"]).evaluar_falso):
                 ciclo = resolver_sync(problema_falso("clasificacion"), _contexto().version, "run-prueba")
             assert ciclo.mejor_candidato is not None and ciclo.mejor_resultado is not None

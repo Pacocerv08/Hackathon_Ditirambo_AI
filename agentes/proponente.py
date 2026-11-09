@@ -10,9 +10,11 @@ from agents import Agent, Runner
 from agentes import fijo
 from agentes.contexto import ContextoCiclo
 from agentes.esquemas import Descripcion, Diagnostico, Propuesta
+from agentes.entradas import entrada_proponente
 from agentes.herramientas import consultar_lecciones, historial_intentos
 from agentes.instrucciones import leer_instrucciones
 from comun import config
+from comun.llm import allamar_modelo
 
 
 logger = logging.getLogger(__name__)
@@ -31,9 +33,13 @@ def _entrada(descripcion: Descripcion, ultimo_diagnostico: Diagnostico | None) -
 
 async def _llamar_modelo(ctx: ContextoCiclo, entrada: str) -> Propuesta:
     """Único adaptador al Agents SDK; reemplazable sin cambiar la lógica de propuestas."""
+    instrucciones = leer_instrucciones(ctx.version, "proponente")
+    if config.LLM_BACKEND == "codex":
+        aviso = "En este entorno no tienes herramientas: toda la información que necesitas viene en la entrada.\n\n"
+        return await allamar_modelo("proponente", aviso + instrucciones, entrada, Propuesta)
     agente = Agent(
         name="Proponente",
-        instructions=leer_instrucciones(ctx.version, "proponente"),
+        instructions=instrucciones,
         model=config.MODELOS["proponente"],
         output_type=Propuesta,
         tools=[consultar_lecciones, historial_intentos],
@@ -79,7 +85,7 @@ async def proponer_con_llm(
     suficientes candidatos inéditos en el catálogo fijo, propaga
     ``SinCandidatosNuevos`` para que el ciclo decida cómo manejarlo.
     """
-    entrada = _entrada(descripcion, ultimo_diagnostico)
+    entrada = entrada_proponente(ctx, descripcion, ultimo_diagnostico) if config.LLM_BACKEND == "codex" else _entrada(descripcion, ultimo_diagnostico)
     propuesta: Propuesta | None = None
     for intento in range(2):
         try:
