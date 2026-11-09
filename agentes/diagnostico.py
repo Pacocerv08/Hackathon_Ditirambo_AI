@@ -9,6 +9,7 @@ from agents import Agent, Runner
 
 from agentes.contexto import ContextoCiclo
 from agentes.esquemas import Diagnostico
+from agentes.entradas import entrada_diagnostico
 from agentes.herramientas import (
     consultar_lecciones,
     contexto_de_fecha,
@@ -17,6 +18,7 @@ from agentes.herramientas import (
 )
 from agentes.instrucciones import leer_instrucciones
 from comun import config
+from comun.llm import allamar_modelo
 from comun.contratos import Resultado
 
 
@@ -40,9 +42,13 @@ def _entrada(resultados: list[Resultado]) -> str:
 
 async def _llamar_modelo(ctx: ContextoCiclo, entrada: str) -> Diagnostico:
     """Único adaptador al Agents SDK; reemplazable sin cambiar el flujo diagnóstico."""
+    instrucciones = leer_instrucciones(ctx.version, "diagnostico")
+    if config.LLM_BACKEND == "codex":
+        aviso = "En este entorno no tienes herramientas: toda la información que necesitas viene en la entrada.\n\n"
+        return await allamar_modelo("diagnostico", aviso + instrucciones, entrada, Diagnostico)
     agente = Agent(
         name="Diagnóstico",
-        instructions=leer_instrucciones(ctx.version, "diagnostico"),
+        instructions=instrucciones,
         model=config.MODELOS["diagnostico"],
         output_type=Diagnostico,
         tools=[
@@ -69,7 +75,7 @@ async def diagnosticar(
     resultados: list[Resultado],
 ) -> Diagnostico:
     """Diagnostica la iteración; ante dos fallos devuelve un diagnóstico vacío y sigue."""
-    entrada = _entrada(resultados)
+    entrada = entrada_diagnostico(ctx, resultados) if config.LLM_BACKEND == "codex" else _entrada(resultados)
     for intento in range(2):
         try:
             return await _llamar_modelo(ctx, entrada)
