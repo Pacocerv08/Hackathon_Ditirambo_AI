@@ -16,4 +16,4 @@ Una entrada por uso relevante. La rúbrica califica la aplicación de Codex (25%
 | 14:18 | Eduardo | memoria | Agregar pruebas de validación de propuestas del curador sin alterar las pruebas existentes | Añadí preparación de ciclos falsos y tres pruebas para evidencia, capacidad activa y límite/dominio | Aceptado; corregido a mano: cuarta propuesta para probar el límite de 2 |
 | 14:25 | Eduardo | memoria | Crear curador, instrucciones y listado de ids de lecciones, sin ejecutar Python | Añadí `_validar`, `_resumen`, ejecución protegida del Agent y `Almacen.ids_lecciones` | Aceptado; correcciones posteriores en validación e instrucciones |
 | 14:33 | Eduardo | comun | Agregar `resolver_falso`, el puerto resolver y documentarlos | Implementé el ciclo falso sin LLM con candidatos fijos y selección real/falsa independiente | Aceptado; Python no ejecutado por instrucción |
-
+| 14:42 | Eduardo | experimento | Crear una prueba de humo aislada para puertos, curador, almacén y constructor | Añadí `experimento/humo.py` con comprobaciones y limpieza temporal | Aceptado; no ejecuté Python por instrucción |
