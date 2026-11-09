@@ -8,9 +8,11 @@ from agents import Agent, Runner
 
 from agentes.contexto import ContextoCiclo
 from agentes.esquemas import Descripcion
+from agentes.entradas import entrada_analista
 from agentes.herramientas import resumen_datos
 from agentes.instrucciones import leer_instrucciones
 from comun import config
+from comun.llm import allamar_modelo
 
 
 logger = logging.getLogger(__name__)
@@ -19,9 +21,13 @@ _MAX_TURNS = 5
 
 async def _llamar_modelo(ctx: ContextoCiclo, entrada: str) -> Descripcion:
     """Único adaptador al Agents SDK; reemplazable sin cambiar el flujo del analista."""
+    instrucciones = leer_instrucciones(ctx.version, "analista")
+    if config.LLM_BACKEND == "codex":
+        aviso = "En este entorno no tienes herramientas: toda la información que necesitas viene en la entrada.\n\n"
+        return await allamar_modelo("analista", aviso + instrucciones, entrada_analista(ctx), Descripcion)
     agente = Agent(
         name="Analista",
-        instructions=leer_instrucciones(ctx.version, "analista"),
+        instructions=instrucciones,
         model=config.MODELOS["analista"],
         output_type=Descripcion,
         tools=[resumen_datos],
