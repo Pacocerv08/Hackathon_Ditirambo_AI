@@ -9,12 +9,18 @@ from comun import config
 from comun.contratos import Capacidades, Leccion, Version
 
 
-def _escribir_config(ruta: Path, version: Version) -> None:
+def _escribir_config(ruta: Path, version: Version, modelos: dict) -> None:
     datos = version.model_dump(mode="json")
-    datos["modelos"] = config.MODELOS
+    datos["modelos"] = modelos
     with ruta.open("w", encoding="utf-8", newline="\n") as archivo:
         json.dump(datos, archivo, indent=2, ensure_ascii=False)
         archivo.write("\n")
+
+
+def _leer_modelos(id: str, raiz: str | Path = config.RUTA_VERSIONES) -> dict:
+    ruta_config = Path(raiz) / id / "config.json"
+    with ruta_config.open("r", encoding="utf-8", newline="\n") as archivo:
+        return json.load(archivo)["modelos"]
 
 
 def _leer_leccion(carpeta: Path) -> Leccion:
@@ -39,7 +45,7 @@ def crear_v0(raiz: str | Path = config.RUTA_VERSIONES) -> Version:
         creada_por="equipo",
         cambios=[],
     )
-    _escribir_config(ruta_config, version)
+    _escribir_config(ruta_config, version, config.MODELOS)
     return version
 
 
@@ -87,6 +93,7 @@ def version_sin(
 
     origen = raiz_path / id
     destino = raiz_path / f"{id}-sin-{leccion_id}"
+    modelos = _leer_modelos(id, raiz=raiz_path)
     if destino.exists():
         shutil.rmtree(destino)
     shutil.copytree(origen, destino)
@@ -123,5 +130,5 @@ def version_sin(
                 archivo.write(contenido)
 
     shutil.rmtree(carpeta_leccion)
-    _escribir_config(destino / "config.json", version)
+    _escribir_config(destino / "config.json", version, modelos)
     return version

@@ -15,6 +15,7 @@ from comun.contratos import (
 )
 from comun.falsos import evaluar_falso, problema_falso
 from memoria.almacen import Almacen
+from memoria.constructor import construir_sucesor
 from memoria.versiones import crear_v0, cargar_version, version_sin
 
 
@@ -193,6 +194,110 @@ def prueba_version_inexistente() -> None:
         raise AssertionError("cargar_version('v9') debió lanzar FileNotFoundError")
 
 
+def _leccion_umbral() -> Leccion:
+    return Leccion(
+        id="L001",
+        version_origen="v0",
+        problema_origen="credito_a",
+        senal="El error caro domina el costo.",
+        evidencia=["cand-1"],
+        texto="Cuando un error cuesta más que otro, ajusta el umbral de decisión a los costos.",
+        tipo_cambio="regla",
+        capacidad="umbral_por_costos",
+        regla_para=["proponente"],
+    )
+
+
+def _preparar_v0(raiz: Path) -> Version:
+    version = crear_v0(raiz=raiz)
+    instrucciones = raiz / "v0" / "instrucciones"
+    instrucciones.mkdir()
+    (instrucciones / "proponente.md").write_text("Instrucción base.\n", encoding="utf-8")
+    return version
+
+
+def prueba_construir_sucesor() -> None:
+    with TemporaryDirectory() as directorio:
+        raiz = Path(directorio)
+        v0 = _preparar_v0(raiz)
+        leccion = _leccion_umbral()
+
+        v1 = construir_sucesor(v0, [leccion], raiz=raiz)
+
+        assert v1.id == "v1"
+        assert v1.padre == "v0"
+        assert v1.capacidades.umbral_por_costos is True
+        assert v1.lecciones_activas == ["L001"]
+        assert v1.creada_por == "sistema"
+        assert cargar_version("v1", raiz=raiz) == v1
+
+        instruccion_v1 = (raiz / "v1" / "instrucciones" / "proponente.md").read_text(
+            encoding="utf-8"
+        )
+        assert "Instrucción base." in instruccion_v1
+        assert "<!-- leccion:L001 -->" in instruccion_v1
+        assert "<!-- /leccion:L001 -->" in instruccion_v1
+        assert leccion.texto in instruccion_v1
+
+        carpetas_leccion = list((raiz / "v1" / "lecciones").glob("L001-*"))
+        assert len(carpetas_leccion) == 1
+        carpeta_leccion = carpetas_leccion[0]
+        skill = (carpeta_leccion / "SKILL.md").read_text(encoding="utf-8")
+        assert skill.startswith("---")
+        assert any(line.startswith("name:") for line in skill.splitlines())
+        assert any(line.startswith("description:") for line in skill.splitlines())
+        leccion_guardada = Leccion.model_validate_json(
+            (carpeta_leccion / "leccion.json").read_text(encoding="utf-8")
+        )
+        assert leccion_guardada == leccion
+        assert (raiz / "v1" / "cambios.md").is_file()
+
+        config_v0 = json.loads((raiz / "v0" / "config.json").read_text(encoding="utf-8"))
+        config_v1 = json.loads((raiz / "v1" / "config.json").read_text(encoding="utf-8"))
+        assert config_v1["modelos"] == config_v0["modelos"]
+        assert (raiz / "v0" / "instrucciones" / "proponente.md").read_text(
+            encoding="utf-8"
+        ) == "Instrucción base.\n"
+        assert not (raiz / "v0" / "lecciones").exists()
+
+
+def prueba_construir_y_ablacionar() -> None:
+    with TemporaryDirectory() as directorio:
+        raiz = Path(directorio)
+        v0 = _preparar_v0(raiz)
+        v1 = construir_sucesor(v0, [_leccion_umbral()], raiz=raiz)
+
+        v1_sin = version_sin("v1", "L001", raiz=raiz)
+
+        assert v1_sin.capacidades == v0.capacidades
+        assert v1_sin.lecciones_activas == []
+        instruccion_sin = (raiz / v1_sin.id / "instrucciones" / "proponente.md").read_text(
+            encoding="utf-8"
+        )
+        instruccion_v0 = (raiz / "v0" / "instrucciones" / "proponente.md").read_text(
+            encoding="utf-8"
+        )
+        assert instruccion_sin == instruccion_v0
+
+
+def prueba_sucesor_existente() -> None:
+    with TemporaryDirectory() as directorio:
+        raiz = Path(directorio)
+        v0 = _preparar_v0(raiz)
+        destino = raiz / "v1"
+        destino.mkdir()
+        protegido = destino / "no_tocar.txt"
+        protegido.write_text("conservar\n", encoding="utf-8")
+
+        try:
+            construir_sucesor(v0, [_leccion_umbral()], raiz=raiz)
+        except FileExistsError:
+            pass
+        else:
+            raise AssertionError("construir_sucesor debió lanzar FileExistsError")
+        assert protegido.read_text(encoding="utf-8") == "conservar\n"
+
+
 def main() -> None:
     pruebas = (
         prueba_guardar_y_leer,
@@ -201,6 +306,9 @@ def main() -> None:
         prueba_crear_y_cargar_v0,
         prueba_version_sin,
         prueba_version_inexistente,
+        prueba_construir_sucesor,
+        prueba_construir_y_ablacionar,
+        prueba_sucesor_existente,
     )
     for prueba in pruebas:
         prueba()
