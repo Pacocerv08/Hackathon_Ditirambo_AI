@@ -1,0 +1,26 @@
+{
+  "id": "demanda_a",
+  "dominio": "inventario_minorista",
+  "tipo_tarea": "serie",
+  "descripcion_negocio": "Pronosticar la demanda diaria de una tienda en México para decidir cuántas unidades pedir cada día.",
+  "archivo": "datos/procesados/demanda.parquet",
+  "objetivo": "demanda",
+  "columna_fecha": "fecha",
+  "clase_positiva": null,
+  "pais": "MX",
+  "costos": {
+    "costo_fn": null,
+    "costo_fp": null,
+    "costo_faltante": 3,
+    "costo_sobrante": 1,
+    "justificacion": "Quedarse sin producto (venta perdida) cuesta unas 3 veces lo que guardar una unidad de más."
+  },
+  "particion": {
+    "semilla": 42,
+    "folds": 5,
+    "proporcion_prueba": 0.25,
+    "proporcion_produccion": 0.2,
+    "fecha_corte_prueba": "2024-05-25"
+  },
+  "reservado": false
+}
