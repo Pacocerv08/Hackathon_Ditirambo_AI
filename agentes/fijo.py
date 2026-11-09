@@ -29,8 +29,19 @@ def _clave(candidato: Candidato) -> str:
     )
 
 
-def proponer(contexto: ContextoCiclo) -> Propuesta:
-    """Devuelve las siguientes tres configuraciones permitidas no probadas."""
+def candidatos_ineditos(
+    contexto: ContextoCiclo,
+    cantidad: int = 3,
+    excluir: set[str] | None = None,
+) -> list[Candidato]:
+    """Devuelve hasta ``cantidad`` candidatos nuevos fuera del historial y excluir.
+
+    ``excluir`` contiene claves funcionales obtenidas con ``clave_candidato``.
+    """
+    if cantidad < 0:
+        raise ValueError("cantidad no puede ser negativa")
+    if cantidad == 0:
+        return []
     # Las variaciones están acotadas a parámetros estándar del registro de modelos.
     configuraciones: list[tuple[str, list[str], list[tuple[str, int | float | str]]]]
     if contexto.problema.tipo_tarea == "serie":
@@ -82,6 +93,7 @@ def proponer(contexto: ContextoCiclo) -> Propuesta:
         ]
         configuraciones = [(modelo, [], parametros) for modelo, parametros in configuraciones]
     ya_probados = {_clave(candidato) for candidato, _ in contexto.historial}
+    ya_probados.update(excluir or set())
     nuevos: list[Candidato] = []
     for modelo, features, parametros in configuraciones:
         candidato = Candidato(
@@ -94,9 +106,26 @@ def proponer(contexto: ContextoCiclo) -> Propuesta:
         if clave in ya_probados:
             continue
         nuevos.append(candidato)
-        if len(nuevos) == 3:
-            return Propuesta(candidatos=nuevos)
-    raise SinCandidatosNuevos("No quedan tres candidatos inéditos en el catálogo fijo")
+        if len(nuevos) == cantidad:
+            return nuevos
+    if len(nuevos) < cantidad:
+        raise SinCandidatosNuevos(
+            f"Solo quedan {len(nuevos)} candidatos inéditos; se solicitaron {cantidad}"
+        )
+    return nuevos
 
 
-__all__ = ["proponer", "SinCandidatosNuevos"]
+def clave_candidato(candidato: Candidato) -> str:
+    """Clave estable para detectar configuraciones funcionalmente repetidas."""
+    return _clave(candidato)
+
+
+def proponer(contexto: ContextoCiclo) -> Propuesta:
+    """Devuelve las siguientes tres configuraciones permitidas no probadas."""
+    nuevos = candidatos_ineditos(contexto, 3)
+    return Propuesta(candidatos=nuevos)
+
+
+__all__ = [
+    "proponer", "candidatos_ineditos", "clave_candidato", "SinCandidatosNuevos"
+]
