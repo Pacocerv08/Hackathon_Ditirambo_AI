@@ -7,6 +7,7 @@ import logging
 from agents import Agent, Runner
 
 from agentes.contexto import ContextoCiclo
+from agentes.cliente import crear_cliente_y_modelo
 from agentes.esquemas import Descripcion
 from agentes.entradas import entrada_analista
 from agentes.herramientas import resumen_datos
@@ -25,23 +26,27 @@ async def _llamar_modelo(ctx: ContextoCiclo, entrada: str) -> Descripcion:
     if config.LLM_BACKEND == "codex":
         aviso = "En este entorno no tienes herramientas: toda la información que necesitas viene en la entrada.\n\n"
         return await allamar_modelo("analista", aviso + instrucciones, entrada_analista(ctx), Descripcion)
-    agente = Agent(
-        name="Analista",
-        instructions=instrucciones,
-        model=config.MODELOS["analista"],
-        output_type=Descripcion,
-        tools=[resumen_datos],
-    )
-    resultado = await Runner.run(
-        agente,
-        entrada,
-        context=ctx,
-        max_turns=_MAX_TURNS,
-    )
-    salida = resultado.final_output
-    if isinstance(salida, Descripcion):
-        return salida
-    return Descripcion.model_validate(salida)
+    cliente, modelo = crear_cliente_y_modelo("analista")
+    try:
+        agente = Agent(
+            name="Analista",
+            instructions=instrucciones,
+            model=modelo,
+            output_type=Descripcion,
+            tools=[resumen_datos],
+        )
+        resultado = await Runner.run(
+            agente,
+            entrada,
+            context=ctx,
+            max_turns=_MAX_TURNS,
+        )
+        salida = resultado.final_output
+        if isinstance(salida, Descripcion):
+            return salida
+        return Descripcion.model_validate(salida)
+    finally:
+        await cliente.close()
 
 
 def _descripcion_minima(ctx: ContextoCiclo) -> Descripcion:

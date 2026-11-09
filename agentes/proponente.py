@@ -9,6 +9,7 @@ from agents import Agent, Runner
 
 from agentes import fijo
 from agentes.contexto import ContextoCiclo
+from agentes.cliente import crear_cliente_y_modelo
 from agentes.esquemas import Descripcion, Diagnostico, Propuesta
 from agentes.entradas import entrada_proponente
 from agentes.herramientas import consultar_lecciones, historial_intentos
@@ -37,23 +38,27 @@ async def _llamar_modelo(ctx: ContextoCiclo, entrada: str) -> Propuesta:
     if config.LLM_BACKEND == "codex":
         aviso = "En este entorno no tienes herramientas: toda la información que necesitas viene en la entrada.\n\n"
         return await allamar_modelo("proponente", aviso + instrucciones, entrada, Propuesta)
-    agente = Agent(
-        name="Proponente",
-        instructions=instrucciones,
-        model=config.MODELOS["proponente"],
-        output_type=Propuesta,
-        tools=[consultar_lecciones, historial_intentos],
-    )
-    resultado = await Runner.run(
-        agente,
-        entrada,
-        context=ctx,
-        max_turns=_MAX_TURNS,
-    )
-    salida = resultado.final_output
-    if isinstance(salida, Propuesta):
-        return salida
-    return Propuesta.model_validate(salida)
+    cliente, modelo = crear_cliente_y_modelo("proponente")
+    try:
+        agente = Agent(
+            name="Proponente",
+            instructions=instrucciones,
+            model=modelo,
+            output_type=Propuesta,
+            tools=[consultar_lecciones, historial_intentos],
+        )
+        resultado = await Runner.run(
+            agente,
+            entrada,
+            context=ctx,
+            max_turns=_MAX_TURNS,
+        )
+        salida = resultado.final_output
+        if isinstance(salida, Propuesta):
+            return salida
+        return Propuesta.model_validate(salida)
+    finally:
+        await cliente.close()
 
 
 def _completar(ctx: ContextoCiclo, propuesta: Propuesta) -> Propuesta:
