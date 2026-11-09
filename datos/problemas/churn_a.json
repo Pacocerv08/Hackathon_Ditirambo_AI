@@ -1,0 +1,26 @@
+{
+  "id": "churn_a",
+  "dominio": "retencion_clientes",
+  "tipo_tarea": "clasificacion",
+  "descripcion_negocio": "Decidir a qué clientes ofrecer un descuento de retención. Actuar significa ofrecer el descuento porque se espera que el cliente cancele.",
+  "archivo": "datos/procesados/churn.parquet",
+  "objetivo": "Churn",
+  "columna_fecha": null,
+  "clase_positiva": "churn",
+  "pais": null,
+  "costos": {
+    "costo_fn": 4,
+    "costo_fp": 1,
+    "costo_faltante": null,
+    "costo_sobrante": null,
+    "justificacion": "Perder a un cliente que cancela cuesta unas 4 veces lo que un descuento de retención ofrecido sin necesidad."
+  },
+  "particion": {
+    "semilla": 42,
+    "folds": 5,
+    "proporcion_prueba": 0.25,
+    "proporcion_produccion": 0.2,
+    "fecha_corte_prueba": null
+  },
+  "reservado": false
+}
