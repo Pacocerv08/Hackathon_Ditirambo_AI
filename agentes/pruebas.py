@@ -252,6 +252,70 @@ def main():
         asyncio.run(run())
     verificar("adaptadores Codex y API sin llamadas reales", backends_adaptadores)
 
+    def clientes_api_por_llamada_y_cierre():
+        ctx = _contexto()
+        salidas = {
+            "Analista": Descripcion(resumen="ok", riesgos=[]),
+            "Proponente": fijo.proponer(ctx),
+            "Diagnóstico": Diagnostico(que_fallo="", por_que="", evidencia=[], que_probar="", seguir=True),
+        }
+
+        class ClienteFalso:
+            def __init__(self):
+                self.cierres = 0
+
+            async def close(self):
+                self.cierres += 1
+
+        clientes = []
+
+        def crear_cliente():
+            cliente = ClienteFalso()
+            clientes.append(cliente)
+            return cliente
+
+        class RunnerFalso:
+            falla = False
+
+            @classmethod
+            async def run(cls, agente, entrada, **kwargs):
+                if cls.falla:
+                    raise RuntimeError("fallo Runner simulado")
+                return type("Salida", (), {"final_output": salidas[agente.name]})()
+
+        def llamada_en_loop_propio(funcion, args):
+            return asyncio.run(funcion(*args))
+
+        modulos = (
+            (analista, analista._llamar_modelo, (ctx, "entrada")),
+            (proponente, proponente._llamar_modelo, (ctx, "entrada")),
+            (diagnostico, diagnostico._llamar_modelo, (ctx, "entrada")),
+        )
+        with patch.object(config, "LLM_BACKEND", "api"), \
+             patch("agentes.cliente.AsyncOpenAI", side_effect=crear_cliente):
+            for modulo, funcion, args in modulos:
+                with patch.object(modulo, "Runner", RunnerFalso):
+                    llamada_en_loop_propio(funcion, args)
+                    llamada_en_loop_propio(funcion, args)
+            assert len(clientes) == 6
+            assert len({id(cliente) for cliente in clientes}) == len(clientes)
+            assert all(cliente.cierres == 1 for cliente in clientes)
+
+            inicio = len(clientes)
+            RunnerFalso.falla = True
+            for modulo, funcion, args in modulos:
+                with patch.object(modulo, "Runner", RunnerFalso):
+                    try:
+                        llamada_en_loop_propio(funcion, args)
+                    except RuntimeError as exc:
+                        assert "Runner simulado" in str(exc)
+                    else:
+                        raise AssertionError("se esperaba fallo de Runner.run")
+            assert len(clientes) == inicio + 3
+            assert all(cliente.cierres == 1 for cliente in clientes[inicio:])
+
+    verificar("API crea cliente independiente por llamada y lo cierra incluso al fallar", clientes_api_por_llamada_y_cierre)
+
     def ciclo_y_almacen():
         with TemporaryDirectory() as directorio:
             ruta = str(Path(directorio) / "memoria.db")
