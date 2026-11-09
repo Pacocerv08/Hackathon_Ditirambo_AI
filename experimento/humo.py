@@ -30,11 +30,26 @@ def main() -> None:
             paso = "abrir almacén temporal"
             almacen = Almacen(str(tmp / "humo.db"))
             ultimo_ciclo = None
+            tipos_elegidos = 0
 
             try:
                 for tipo in ("clasificacion", "serie"):
+                    paso = f"elegir problema {tipo}"
+                    if puertos.PUERTOS_FALSOS["evaluar"]:
+                        problema = problema_falso(tipo)
+                    else:
+                        problema_id = "credito_a" if tipo == "clasificacion" else "demanda_a"
+                        try:
+                            from datos.problemas import cargar_problema
+
+                            problema = cargar_problema(problema_id)
+                        except (ImportError, FileNotFoundError, KeyError, ValueError) as error:
+                            print(f"SALTO {tipo}: {error}")
+                            continue
+                    print(f"problema: {problema.id}")
+                    tipos_elegidos += 1
+
                     paso = f"resolver {tipo}"
-                    problema = problema_falso(tipo)
                     ciclo = puertos.resolver(problema, v0)
                     assert ciclo.mejor_candidato is not None, "falta mejor_candidato"
                     assert ciclo.mejor_resultado is not None, "falta mejor_resultado"
@@ -52,6 +67,10 @@ def main() -> None:
                         f"producción={ciclo.resultado_produccion.costo_relativo:.3f} "
                         f"lecciones={len(lecciones)}"
                     )
+
+                if tipos_elegidos == 0:
+                    print("FALLO en elegir problema: no hay ningún problema disponible")
+                    sys.exit(1)
 
                 paso = "preparar versiones temporales"
                 raiz_versiones = tmp / "versiones"
