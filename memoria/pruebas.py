@@ -10,11 +10,14 @@ from comun.contratos import (
     Capacidades,
     Leccion,
     Modo,
+    ResultadoCiclo,
     Resultado,
     Version,
 )
 from comun.falsos import evaluar_falso, problema_falso
 from memoria.almacen import Almacen
+from memoria.constructor import construir_sucesor
+from memoria.curador import LeccionPropuesta, _validar
 from memoria.versiones import crear_v0, cargar_version, version_sin
 
 
@@ -193,6 +196,205 @@ def prueba_version_inexistente() -> None:
         raise AssertionError("cargar_version('v9') debió lanzar FileNotFoundError")
 
 
+def _leccion_umbral() -> Leccion:
+    return Leccion(
+        id="L001",
+        version_origen="v0",
+        problema_origen="credito_a",
+        senal="El error caro domina el costo.",
+        evidencia=["cand-1"],
+        texto="Cuando un error cuesta más que otro, ajusta el umbral de decisión a los costos.",
+        tipo_cambio="regla",
+        capacidad="umbral_por_costos",
+        regla_para=["proponente"],
+    )
+
+
+def _preparar_v0(raiz: Path) -> Version:
+    version = crear_v0(raiz=raiz)
+    instrucciones = raiz / "v0" / "instrucciones"
+    instrucciones.mkdir()
+    (instrucciones / "proponente.md").write_text("Instrucción base.\n", encoding="utf-8")
+    return version
+
+
+def prueba_construir_sucesor() -> None:
+    with TemporaryDirectory() as directorio:
+        raiz = Path(directorio)
+        v0 = _preparar_v0(raiz)
+        leccion = _leccion_umbral()
+
+        v1 = construir_sucesor(v0, [leccion], raiz=raiz)
+
+        assert v1.id == "v1"
+        assert v1.padre == "v0"
+        assert v1.capacidades.umbral_por_costos is True
+        assert v1.lecciones_activas == ["L001"]
+        assert v1.creada_por == "sistema"
+        assert cargar_version("v1", raiz=raiz) == v1
+
+        instruccion_v1 = (raiz / "v1" / "instrucciones" / "proponente.md").read_text(
+            encoding="utf-8"
+        )
+        assert "Instrucción base." in instruccion_v1
+        assert "<!-- leccion:L001 -->" in instruccion_v1
+        assert "<!-- /leccion:L001 -->" in instruccion_v1
+        assert leccion.texto in instruccion_v1
+
+        carpetas_leccion = list((raiz / "v1" / "lecciones").glob("L001-*"))
+        assert len(carpetas_leccion) == 1
+        carpeta_leccion = carpetas_leccion[0]
+        skill = (carpeta_leccion / "SKILL.md").read_text(encoding="utf-8")
+        assert skill.startswith("---")
+        assert any(line.startswith("name:") for line in skill.splitlines())
+        assert any(line.startswith("description:") for line in skill.splitlines())
+        leccion_guardada = Leccion.model_validate_json(
+            (carpeta_leccion / "leccion.json").read_text(encoding="utf-8")
+        )
+        assert leccion_guardada == leccion
+        assert (raiz / "v1" / "cambios.md").is_file()
+
+        config_v0 = json.loads((raiz / "v0" / "config.json").read_text(encoding="utf-8"))
+        config_v1 = json.loads((raiz / "v1" / "config.json").read_text(encoding="utf-8"))
+        assert config_v1["modelos"] == config_v0["modelos"]
+        assert (raiz / "v0" / "instrucciones" / "proponente.md").read_text(
+            encoding="utf-8"
+        ) == "Instrucción base.\n"
+        assert not (raiz / "v0" / "lecciones").exists()
+
+
+def prueba_construir_y_ablacionar() -> None:
+    with TemporaryDirectory() as directorio:
+        raiz = Path(directorio)
+        v0 = _preparar_v0(raiz)
+        v1 = construir_sucesor(v0, [_leccion_umbral()], raiz=raiz)
+
+        v1_sin = version_sin("v1", "L001", raiz=raiz)
+
+        assert v1_sin.capacidades == v0.capacidades
+        assert v1_sin.lecciones_activas == []
+        instruccion_sin = (raiz / v1_sin.id / "instrucciones" / "proponente.md").read_text(
+            encoding="utf-8"
+        )
+        instruccion_v0 = (raiz / "v0" / "instrucciones" / "proponente.md").read_text(
+            encoding="utf-8"
+        )
+        assert instruccion_sin == instruccion_v0
+
+
+def prueba_sucesor_existente() -> None:
+    with TemporaryDirectory() as directorio:
+        raiz = Path(directorio)
+        v0 = _preparar_v0(raiz)
+        destino = raiz / "v1"
+        destino.mkdir()
+        protegido = destino / "no_tocar.txt"
+        protegido.write_text("conservar\n", encoding="utf-8")
+
+        try:
+            construir_sucesor(v0, [_leccion_umbral()], raiz=raiz)
+        except FileExistsError:
+            pass
+        else:
+            raise AssertionError("construir_sucesor debió lanzar FileExistsError")
+        assert protegido.read_text(encoding="utf-8") == "conservar\n"
+
+
+def _contexto_curador(umbral_activo: bool = False):
+    problema = problema_falso("clasificacion")
+    problema.id = "curador_prueba"
+    candidatos = [_candidato("referencia"), _candidato("logistica")]
+    historial = [
+        evaluar_falso(problema, candidato, Capacidades(), version="v0")
+        for candidato in candidatos
+    ]
+    ciclo = ResultadoCiclo(
+        problema_id=problema.id,
+        version="v0",
+        run_id="run_curador_pruebas",
+        mejor_candidato=None,
+        mejor_resultado=None,
+        historial=historial,
+        diagnosticos=[],
+    )
+    version = Version(
+        id="v0",
+        padre=None,
+        capacidades=Capacidades(umbral_por_costos=umbral_activo),
+        lecciones_activas=[],
+        creada_por="equipo",
+        cambios=[],
+    )
+    return problema, ciclo, version
+
+
+def _propuesta_curador(
+    evidencia: list[str],
+    texto: str = "Ajusta la decisión según los costos de error.",
+    capacidad: str | None = None,
+) -> LeccionPropuesta:
+    return LeccionPropuesta(
+        senal="El costo se concentra en errores de un tipo.",
+        evidencia=evidencia,
+        texto=texto,
+        tipo_cambio="regla",
+        capacidad=capacidad,
+        regla_para=["proponente"],
+    )
+
+
+def prueba_curador_evidencia() -> None:
+    problema, ciclo, version = _contexto_curador()
+    candidato_id = ciclo.historial[0].candidato_id
+    propuestas = [
+        _propuesta_curador([candidato_id]),
+        _propuesta_curador(["inventado"], texto="Esta evidencia no existe."),
+    ]
+
+    lecciones = _validar(propuestas, problema, ciclo, version, ids_existentes=[])
+
+    assert len(lecciones) == 1
+    assert lecciones[0].id == "L001"
+    assert lecciones[0].evidencia == [candidato_id]
+    assert lecciones[0].version_origen == "v0"
+    assert lecciones[0].problema_origen == problema.id
+
+
+def prueba_curador_capacidad_activa() -> None:
+    problema, ciclo, version = _contexto_curador(umbral_activo=True)
+    propuesta = _propuesta_curador(
+        [ciclo.historial[0].candidato_id],
+        capacidad="umbral_por_costos",
+    )
+
+    lecciones = _validar([propuesta], problema, ciclo, version, ids_existentes=[])
+
+    assert lecciones == []
+
+
+def prueba_curador_limite_y_dominio() -> None:
+    problema, ciclo, version = _contexto_curador()
+    evidencia = [resultado.candidato_id for resultado in ciclo.historial]
+    propuestas = [
+        _propuesta_curador([evidencia[0]], texto=f"Evita repetir {problema.id.upper()} en reglas."),
+        _propuesta_curador([evidencia[0]], texto="Ajusta decisiones con costos asimétricos."),
+        _propuesta_curador([evidencia[1]], texto="Comprueba el resultado en casos reservados."),
+        _propuesta_curador([evidencia[1]], texto="Revisa columnas que predicen demasiado bien."),
+    ]
+
+    lecciones = _validar(
+        propuestas,
+        problema,
+        ciclo,
+        version,
+        ids_existentes=["L001", "L003"],
+    )
+
+    assert len(lecciones) == 2
+    assert all(problema.id.lower() not in leccion.texto.lower() for leccion in lecciones)
+    assert [leccion.id for leccion in lecciones] == ["L004", "L005"]
+
+
 def main() -> None:
     pruebas = (
         prueba_guardar_y_leer,
@@ -201,6 +403,12 @@ def main() -> None:
         prueba_crear_y_cargar_v0,
         prueba_version_sin,
         prueba_version_inexistente,
+        prueba_construir_sucesor,
+        prueba_construir_y_ablacionar,
+        prueba_sucesor_existente,
+        prueba_curador_evidencia,
+        prueba_curador_capacidad_activa,
+        prueba_curador_limite_y_dominio,
     )
     for prueba in pruebas:
         prueba()
