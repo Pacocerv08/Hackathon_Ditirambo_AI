@@ -47,6 +47,15 @@ def candidatos_ineditos(
     if contexto.problema.tipo_tarea == "serie":
         catalogo_features = ["rezagos", "medias_moviles", "dia_semana"]
         configuraciones = []
+        if contexto.version.capacidades.variables_calendario:
+            # Prioridad explícita para que la primera propuesta explore la capacidad nueva.
+            configuraciones.append(("lightgbm", ["rezagos", "calendario"], [("n_estimators", 50)]))
+            for base in (["rezagos"], ["medias_moviles"], ["dia_semana"],
+                         ["rezagos", "medias_moviles"], ["rezagos", "dia_semana"],
+                         ["medias_moviles", "dia_semana"], catalogo_features):
+                features_calendario = [*base, "calendario"]
+                configuraciones.append(("arbol", features_calendario, [("max_depth", 2)]))
+                configuraciones.append(("lightgbm", features_calendario, [("n_estimators", 50)]))
         for features in (
             ["rezagos"],
             ["medias_moviles"],
