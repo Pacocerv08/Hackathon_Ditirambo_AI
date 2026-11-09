@@ -221,9 +221,66 @@ def prueba_fuga(problema_credito, problema_churn) -> None:
               f"{sin.metricas.get('max_auc_columna')}")
 
 
+def prueba_contexto() -> None:
+    from comun.falsos import contexto_de_fecha_falso
+    from datos.contexto import contexto_de_fecha
+
+    print("\n=== contexto_de_fecha ===")
+    casos = [("2024-09-16", "MX"), ("2024-11-15", "MX"), ("2023-11-20", "MX"), ("2024-11-15", None)]
+    ctx = {}
+    for fecha, pais in casos:
+        ctx[(fecha, pais)] = c = contexto_de_fecha(fecha, pais)
+        print(f"  {fecha} pais={pais!s:<5} {c['dia_semana']:<10} festivo={c['es_festivo']!s:<5} "
+              f"({c['nombre_festivo']}) quincena={c['es_quincena']!s:<5} fin_de_mes={c['es_fin_de_mes']!s:<5} "
+              f"evento={c['evento']} dias_a_festivo={c['dias_a_festivo_mas_cercano']}")
+
+    a = ctx[("2024-09-16", "MX")]
+    verificar("contexto 2024-09-16 MX: es_festivo", a["es_festivo"] is True, f"{a['nombre_festivo']}")
+    b = ctx[("2024-11-15", "MX")]
+    verificar("contexto 2024-11-15 MX: evento Buen Fin", b["evento"] == "Buen Fin", f"{b['evento']}")
+    verificar("contexto 2024-11-15 MX: quincena y 3 días al festivo",
+              b["es_quincena"] is True and b["dias_a_festivo_mas_cercano"] == 3,
+              f"quincena={b['es_quincena']}, dias={b['dias_a_festivo_mas_cercano']}")
+    d = ctx[("2024-11-15", None)]
+    verificar("contexto sin país: sin festivo ni evento",
+              d["es_festivo"] is False and d["evento"] is None and d["dias_a_festivo_mas_cercano"] is None, "")
+    verificar("contexto: mismas llaves que el falso",
+              list(b) == list(contexto_de_fecha_falso("2024-11-15", "MX")), f"{list(b)}")
+    for entrada in [("2024-02-30", "MX"), ("20240916", "MX"), ("2024-09-16", "XX")]:
+        try:
+            contexto_de_fecha(*entrada)
+            verificar(f"contexto inválido {entrada}: ValueError", False, "no dio error")
+        except ValueError as e:
+            verificar(f"contexto inválido {entrada}: ValueError", True, str(e))
+
+
+def prueba_huella(problemas) -> None:
+    from comun.falsos import huella_falsa
+    from datos.huella import huella
+
+    print("\n=== huella ===")
+    hs = {}
+    for p in problemas:
+        hs[p.id] = h = huella(p)
+        print(f"  {p.id:<10} " + "  ".join(f"{k}={v:.4g}" for k, v in h.items()))
+        verificar(f"huella {p.id}: llaves del falso y todo float",
+                  list(h) == list(huella_falsa(p)) and all(type(v) is float for v in h.values()), "")
+    verificar("huella churn_a: max_auc_columna > 0.95", hs["churn_a"]["max_auc_columna"] > 0.95,
+              f"{hs['churn_a']['max_auc_columna']:.3f}")
+    verificar("huella credito_a: max_auc_columna <= 0.95", hs["credito_a"]["max_auc_columna"] <= 0.95,
+              f"{hs['credito_a']['max_auc_columna']:.3f}")
+    try:
+        huella(problema_falso("serie"))
+        verificar("huella serie: error claro", False, "no dio error")
+    except NotImplementedError as e:
+        verificar("huella serie: error claro", True, str(e))
+
+
 def main() -> int:
     problema = cargar_problema(PROBLEMA)
     churn = cargar_problema(PROBLEMA_FUGA)
+    prueba_contexto()
+    prueba_huella([problema, churn])
     prueba_particion(problema)
     prueba_particion(churn)
     tabla_principal(problema)
