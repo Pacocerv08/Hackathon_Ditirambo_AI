@@ -22,10 +22,10 @@ from memoria.almacen import Almacen
 from agentes.ciclo import resolver_sync
 
 
-def _contexto(tipo="clasificacion", almacen=None):
+def _contexto(tipo="clasificacion", almacen=None, calendario=False):
     return ContextoCiclo(
         problema=problema_falso(tipo),
-        version=Version(id="v0", padre=None, capacidades=Capacidades(),
+        version=Version(id="v0", padre=None, capacidades=Capacidades(variables_calendario=calendario),
                         lecciones_activas=[], creada_por="equipo", cambios=[]),
         run_id="pruebas", almacen=almacen,
     )
@@ -57,6 +57,64 @@ def main():
         for tipo in ("clasificacion", "serie"):
             assert _candidatos_distintos(fijo.proponer(_contexto(tipo)).candidatos)
     verificar("fijo propone tres distintos en ambas tareas", propuesta_fija)
+
+    def catalogo_calendario():
+        assert entradas.variables_disponibles(_contexto("serie")) == ["rezagos", "medias_moviles", "dia_semana"]
+        assert entradas.variables_disponibles(_contexto("serie", calendario=True)) == ["rezagos", "medias_moviles", "dia_semana", "calendario"]
+        assert entradas.variables_disponibles(_contexto("clasificacion", calendario=True)) == []
+        for habilitado in (False, True):
+            ctx = _contexto("serie", calendario=habilitado)
+            texto = entradas.entrada_proponente(ctx, Descripcion(resumen="x", riesgos=[]), None)
+            assert "## Variables disponibles (catálogo vigente de esta versión)" in texto
+            assert "Esta lista manda sobre cualquier otra lista de variables en tus instrucciones; usa solo estas." in texto
+            assert ("calendario" in texto) == habilitado
+            api_texto = proponente._entrada(ctx, Descripcion(resumen="x", riesgos=[]), None)
+            assert ("calendario" in api_texto) == habilitado
+        assert "pruébala al menos una vez" in proponente._entrada(_contexto("serie", calendario=True), Descripcion(resumen="x", riesgos=[]), None)
+    verificar("catálogo y entradas reflejan capacidad de calendario en ambos backends", catalogo_calendario)
+
+    def fijo_calendario():
+        con = _contexto("serie", calendario=True)
+        assert any("calendario" in c.features for c in fijo.proponer(con).candidatos)
+        assert "calendario" in fijo.proponer(con).candidatos[0].features
+        sin = _contexto("serie")
+        vistos = set()
+        while True:
+            try:
+                lote = fijo.proponer(sin).candidatos
+            except fijo.SinCandidatosNuevos:
+                break
+            assert all("calendario" not in c.features for c in lote)
+            vistos.update(fijo.clave_candidato(c) for c in lote)
+            sin.historial.extend((c, None) for c in lote)
+        assert vistos
+    verificar("catálogo fijo prioriza calendario solo cuando está habilitado", fijo_calendario)
+
+    def proponente_explora_calendario():
+        async def run():
+            candidatos = [
+                Candidato(modelo="arbol", justificacion="sin calendario", hiperparametros=[Hiperparametro(nombre="max_depth", valor=d)])
+                for d in (2, 4, 8)
+            ]
+            async def tres_sin_calendario(*args, **kwargs):
+                return Propuesta(candidatos=candidatos)
+            for habilitado in (True, False):
+                ctx = _contexto("serie", calendario=habilitado)
+                with patch.object(proponente, "_llamar_modelo", tres_sin_calendario):
+                    salida = await proponente.proponer_con_llm(ctx, Descripcion(resumen="x", riesgos=[]), None)
+                assert _candidatos_distintos(salida.candidatos)
+                assert any("calendario" in c.features for c in salida.candidatos) is habilitado
+            ctx = _contexto("serie", calendario=True)
+            previo = Candidato(modelo="lightgbm", features=["rezagos", "calendario"], hiperparametros=[Hiperparametro(nombre="n_estimators", valor=50)], justificacion="previo")
+            ctx.historial.append((previo, Resultado(
+                problema_id=ctx.problema.id, candidato_id="previo-calendario", version="v0",
+                modo="validacion", costo=1, costo_referencia=2, costo_relativo=0.5, resuelto=True,
+            )))
+            with patch.object(proponente, "_llamar_modelo", tres_sin_calendario):
+                salida = await proponente.proponer_con_llm(ctx, Descripcion(resumen="x", riesgos=[]), None)
+            assert not any("calendario" in c.features for c in salida.candidatos)
+        asyncio.run(run())
+    verificar("proponente explora calendario una vez, respetando capacidad e historial", proponente_explora_calendario)
 
     def historial_fijo():
         ctx = _contexto()
@@ -315,6 +373,25 @@ def main():
             assert all(cliente.cierres == 1 for cliente in clientes[inicio:])
 
     verificar("API crea cliente independiente por llamada y lo cierra incluso al fallar", clientes_api_por_llamada_y_cierre)
+
+    def analista_api_entrada_completa():
+        ctx = _contexto()
+        recibidas = []
+        class ClienteFalso:
+            async def close(self):
+                pass
+        class RunnerFalso:
+            @staticmethod
+            async def run(agente, entrada, **kwargs):
+                recibidas.append(entrada)
+                return type("Salida", (), {"final_output": Descripcion(resumen="ok", riesgos=[])})()
+        with patch.object(config, "LLM_BACKEND", "api"), \
+             patch("agentes.cliente.AsyncOpenAI", return_value=ClienteFalso()), \
+             patch.object(analista, "Runner", RunnerFalso):
+            asyncio.run(analista._llamar_modelo(ctx, "entrada mínima"))
+        assert len(recibidas) == 1
+        assert "## Problema" in recibidas[0] and "## Resumen de datos" in recibidas[0]
+    verificar("analista API entrega problema y resumen de datos a Runner.run", analista_api_entrada_completa)
 
     def ciclo_y_almacen():
         with TemporaryDirectory() as directorio:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 
 from agents import Agent, Runner
@@ -11,7 +10,7 @@ from agentes import fijo
 from agentes.contexto import ContextoCiclo
 from agentes.cliente import crear_cliente_y_modelo
 from agentes.esquemas import Descripcion, Diagnostico, Propuesta
-from agentes.entradas import entrada_proponente
+from agentes.entradas import entrada_proponente, variables_disponibles
 from agentes.herramientas import consultar_lecciones, historial_intentos
 from agentes.instrucciones import leer_instrucciones
 from comun import config
@@ -22,14 +21,9 @@ logger = logging.getLogger(__name__)
 _MAX_TURNS = 5
 
 
-def _entrada(descripcion: Descripcion, ultimo_diagnostico: Diagnostico | None) -> str:
-    datos = {
-        "descripcion_problema": descripcion.model_dump(),
-        "ultimo_diagnostico": (
-            ultimo_diagnostico.model_dump() if ultimo_diagnostico is not None else None
-        ),
-    }
-    return json.dumps(datos, ensure_ascii=False, default=str)
+def _entrada(ctx: ContextoCiclo, descripcion: Descripcion, ultimo_diagnostico: Diagnostico | None) -> str:
+    """Ambos backends comparten el catálogo y el texto de entrada del proponente."""
+    return entrada_proponente(ctx, descripcion, ultimo_diagnostico)
 
 
 async def _llamar_modelo(ctx: ContextoCiclo, entrada: str) -> Propuesta:
@@ -90,7 +84,7 @@ async def proponer_con_llm(
     suficientes candidatos inéditos en el catálogo fijo, propaga
     ``SinCandidatosNuevos`` para que el ciclo decida cómo manejarlo.
     """
-    entrada = entrada_proponente(ctx, descripcion, ultimo_diagnostico) if config.LLM_BACKEND == "codex" else _entrada(descripcion, ultimo_diagnostico)
+    entrada = _entrada(ctx, descripcion, ultimo_diagnostico)
     propuesta: Propuesta | None = None
     for intento in range(2):
         try:
@@ -109,7 +103,18 @@ async def proponer_con_llm(
         propuesta = fijo.proponer(ctx)
 
     try:
-        return _completar(ctx, propuesta)
+        completa = _completar(ctx, propuesta)
+        if "calendario" in variables_disponibles(ctx):
+            historial_usa_calendario = any("calendario" in c.features for c, _ in ctx.historial)
+            if not historial_usa_calendario and not any(
+                "calendario" in c.features for c in completa.candidatos
+            ):
+                claves_restantes = {fijo.clave_candidato(c) for c in completa.candidatos[:2]}
+                calendario = fijo.candidatos_ineditos(ctx, 1, claves_restantes)[0]
+                candidatos = [*completa.candidatos[:2], calendario]
+                logger.info("[EXPLORACIÓN] Se agregó un candidato con calendario a la propuesta.")
+                return Propuesta(candidatos=candidatos)
+        return completa
     except Exception:
         logger.exception("No se pudo completar la propuesta del modelo; usando propuesta fija")
         return fijo.proponer(ctx)

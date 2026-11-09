@@ -32,6 +32,29 @@ def _problema(ctx: ContextoCiclo) -> str:
     })
 
 
+def variables_disponibles(ctx: ContextoCiclo) -> list[str]:
+    """Catálogo de features de serie habilitado por la versión actual."""
+    if ctx.problema.tipo_tarea != "serie":
+        return []
+    disponibles = ["rezagos", "medias_moviles", "dia_semana"]
+    if ctx.version.capacidades.variables_calendario:
+        disponibles.append("calendario")
+    return disponibles
+
+
+def _seccion_variables(ctx: ContextoCiclo) -> str | None:
+    if ctx.problema.tipo_tarea != "serie":
+        return None
+    disponibles = variables_disponibles(ctx)
+    texto = (
+        "\n".join(disponibles)
+        + "\nEsta lista manda sobre cualquier otra lista de variables en tus instrucciones; usa solo estas."
+    )
+    if "calendario" in disponibles:
+        texto += "\ncalendario es una variable nueva en esta versión: pruébala al menos una vez."
+    return _seccion("Variables disponibles (catálogo vigente de esta versión)", texto)
+
+
 def _limitar(secciones: list[str]) -> str:
     salida = []
     usados = 0
@@ -81,13 +104,19 @@ def entrada_proponente(
         })
     desc = descripcion.model_dump() if hasattr(descripcion, "model_dump") else str(descripcion)
     diag = ultimo_diagnostico.model_dump() if hasattr(ultimo_diagnostico, "model_dump") else "ninguno"
-    return _limitar([
+    secciones = [
         _seccion("Problema", _problema(ctx)),
+    ]
+    variables = _seccion_variables(ctx)
+    if variables:
+        secciones.append(variables)
+    secciones.extend([
         _seccion("Ya probado (no repetir)", _compacto(probados, limite=7500)),
         _seccion("Último diagnóstico", _compacto(diag) if diag != "ninguno" else "ninguno"),
         _seccion("Lecciones activas", lecciones),
         _seccion("Descripción del analista", _compacto(desc)),
     ])
+    return _limitar(secciones)
 
 
 def entrada_diagnostico(ctx: ContextoCiclo, resultados: list[Resultado]) -> str:

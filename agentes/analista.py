@@ -37,7 +37,7 @@ async def _llamar_modelo(ctx: ContextoCiclo, entrada: str) -> Descripcion:
         )
         resultado = await Runner.run(
             agente,
-            entrada,
+            entrada_analista(ctx),
             context=ctx,
             max_turns=_MAX_TURNS,
         )
