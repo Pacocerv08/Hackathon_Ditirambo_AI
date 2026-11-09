@@ -18,6 +18,7 @@ from sklearn.model_selection import StratifiedKFold, cross_val_predict, train_te
 
 from comun import config
 from comun.contratos import Candidato, Capacidades, Modo, PeorCaso, Problema, Resultado
+from datos.columnas_futuras import columnas_futuras
 from datos.problemas import cargar_datos
 from evaluacion import costos as c
 from evaluacion.registro import construir_modelo
@@ -52,6 +53,24 @@ def particion(problema: Problema, df: pd.DataFrame | None = None) -> dict[str, p
             "prueba": pd.Index(prueba)}
 
 
+def _ruido_en_columnas_futuras(problema: Problema, df: pd.DataFrame,
+                               pedazos: dict[str, pd.Index]) -> pd.DataFrame:
+    """Intervención declarada del equipo: las columnas que solo existen después del hecho
+    (datos/columnas_futuras.py, por problema.archivo) se reemplazan en producción y prueba por valores
+    sacados al azar de su distribución en entrenamiento. Se ven igual pero no traen información del
+    objetivo. Entrenamiento (y por tanto validación) queda intacto. Determinista con la semilla."""
+    columnas = [col for col in columnas_futuras(problema.archivo) if col in df.columns]
+    if not columnas:
+        return df
+    df = df.copy()
+    rng = np.random.default_rng(problema.particion.semilla)
+    filas = pedazos["produccion"].append(pedazos["prueba"])
+    for col in columnas:
+        valores = df.loc[pedazos["entrenamiento"], col].to_numpy()
+        df.loc[filas, col] = rng.choice(valores, size=len(filas), replace=True)
+    return df
+
+
 # ---------------------------------------------------------------- referencia
 
 def _llave_referencia(problema: Problema, modo: str) -> tuple:
@@ -80,7 +99,7 @@ def _revisar_fuga(X: pd.DataFrame, y: pd.Series, capacidades: Capacidades,
 
         fuga.revisar(X, y, quitar: bool) -> (columnas_a_quitar, alertas, metricas)
 
-    calculado solo sobre los datos con los que se entrena. Mientras el módulo no exista, no se hace nada
+    calculado solo sobre el pedazo de entrenamiento. Mientras el módulo no exista, no se hace nada
     (y si la capacidad está encendida se avisa). Cualquier otro error se propaga al manejo normal.
     """
     try:
@@ -153,6 +172,7 @@ def _evaluar_clasificacion(problema: Problema, candidato: Candidato, capacidades
 
     df = cargar_datos(problema)
     pedazos = particion(problema, df)
+    df = _ruido_en_columnas_futuras(problema, df, pedazos)
     variables = [col for col in df.columns if col != problema.objetivo]
     for col in candidato.excluir_columnas:
         if col not in variables:
@@ -170,7 +190,11 @@ def _evaluar_clasificacion(problema: Problema, candidato: Candidato, capacidades
         filas_evaluadas = pedazos["prueba"]
 
     y_ajuste = df.loc[filas_ajuste, problema.objetivo]
-    por_fuga = _revisar_fuga(df.loc[filas_ajuste, variables], y_ajuste, capacidades, alertas, metricas)
+    # La revisión de fuga se calcula siempre sobre el pedazo de entrenamiento (nunca tiene ruido),
+    # en los tres modos; lo detectado se quita del ajuste y de lo evaluado.
+    entrenamiento = pedazos["entrenamiento"]
+    por_fuga = _revisar_fuga(df.loc[entrenamiento, variables], df.loc[entrenamiento, problema.objetivo],
+                             capacidades, alertas, metricas)
     usar = [col for col in variables if col not in set(candidato.excluir_columnas) | set(por_fuga)]
     if not usar:
         raise ValueError("no queda ninguna variable después de excluir columnas")

@@ -1,24 +1,45 @@
 """Registro de modelos: nombre del candidato -> estimador de scikit-learn sin entrenar.
 
-Primera entrega: solo clasificación, con 'referencia' y 'logistica'.
+Clasificación: 'referencia', 'logistica', 'arbol' y 'lightgbm'. Series: todavía ninguno.
 Importar este módulo no lee datos ni entrena nada.
 """
 import numpy as np
+from lightgbm import LGBMClassifier
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer, make_column_selector
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.tree import DecisionTreeClassifier
 
 from comun.contratos import Candidato, Hiperparametro, Problema
 
-# nombre de hiperparámetro -> función que convierte el valor del contrato (float | int | str)
+
+def _real(valor) -> float:
+    return float(valor)
+
+
+def _entero(valor) -> int:
+    x = float(valor)
+    if not x.is_integer():
+        raise ValueError("no es entero")
+    return int(x)
+
+
+# nombre -> (conversión del valor del contrato (float | int | str), mínimo, máximo, mínimo exclusivo)
 HIPERPARAMETROS_PERMITIDOS = {
     "referencia": {},
-    "logistica": {"C": float},
+    "logistica": {"C": (_real, 0.0, 1e6, True)},
+    "arbol": {"max_depth": (_entero, 1, 50, False),
+              "min_samples_leaf": (_entero, 1, 1000, False)},
+    "lightgbm": {"n_estimators": (_entero, 1, 2000, False),
+                 "learning_rate": (_real, 0.0, 1.0, True),
+                 "num_leaves": (_entero, 2, 1024, False),
+                 "min_child_samples": (_entero, 1, 1000, False)},
 }
-IMPLEMENTADOS = {"clasificacion": {"referencia", "logistica"}, "serie": set()}
+IMPLEMENTADOS = {"clasificacion": {"referencia", "logistica", "arbol", "lightgbm"}, "serie": set()}
 
 
 class ErrorRegistro(ValueError):
@@ -69,12 +90,17 @@ def _leer_hiperparametros(modelo: str, hiperparametros: list[Hiperparametro]):
         if h.nombre in valores:
             ignorados.append(f"{h.nombre} (repetido, se usa el primero)")
             continue
+        convertir, minimo, maximo, exclusivo = permitidos[h.nombre]
+        tipo = "entero" if convertir is _entero else "número"
         try:
-            valor = permitidos[h.nombre](h.valor)
-        except (TypeError, ValueError):
-            raise ErrorRegistro(f"{modelo}: {h.nombre}={h.valor!r} no se puede convertir a número")
-        if not np.isfinite(valor) or valor <= 0:
-            raise ErrorRegistro(f"{modelo}: {h.nombre} debe ser un número positivo, llegó {h.valor!r}")
+            valor = convertir(h.valor)
+        except (TypeError, ValueError, OverflowError):
+            raise ErrorRegistro(f"{modelo}: {h.nombre}={h.valor!r} no se puede convertir a {tipo}")
+        fuera = (not np.isfinite(valor) or valor > maximo
+                 or (valor <= minimo if exclusivo else valor < minimo))
+        if fuera:
+            rango = f"{'(' if exclusivo else '['}{minimo}, {maximo}]"
+            raise ErrorRegistro(f"{modelo}: {h.nombre} debe ser un {tipo} en {rango}, llegó {h.valor!r}")
         valores[h.nombre] = valor
     return valores, ignorados
 
@@ -83,8 +109,8 @@ def construir_modelo(problema: Problema, candidato: Candidato):
     """Devuelve (estimador sin entrenar, hiperparámetros ignorados).
 
     - referencia: nunca actúa, sin calibrar.
-    - logistica: escalado + one-hot + LogisticRegression dentro de un Pipeline,
-      calibrado con CalibratedClassifierCV(cv=3).
+    - logistica, arbol, lightgbm: imputación + (escalado solo en logistica) + one-hot + modelo dentro
+      de un Pipeline, calibrado con CalibratedClassifierCV(cv=3). Semilla del problema; n_jobs=1.
     Lanza ErrorRegistro con un mensaje claro si el modelo no aplica o no está implementado.
     """
     modelo, tarea = candidato.modelo, problema.tipo_tarea
@@ -99,14 +125,24 @@ def construir_modelo(problema: Problema, candidato: Candidato):
         return Referencia(), ignorados
 
     semilla = problema.particion.semilla
+    if modelo == "logistica":
+        estimador = LogisticRegression(max_iter=1000, C=valores.get("C", 1.0), random_state=semilla)
+    elif modelo == "arbol":
+        estimador = DecisionTreeClassifier(random_state=semilla, **valores)
+    else:  # lightgbm
+        estimador = LGBMClassifier(verbose=-1, random_state=semilla, n_jobs=1, **valores)
+
+    # Imputación determinista (mediana / "faltante"): TotalCharges de churn trae vacíos.
+    pasos_numericos = [("imputar", SimpleImputer(strategy="median"))]
+    if modelo == "logistica":
+        pasos_numericos.append(("escalar", StandardScaler()))
     preparacion = ColumnTransformer([
-        ("numericas", StandardScaler(), make_column_selector(dtype_include=np.number)),
-        ("categoricas", OneHotEncoder(handle_unknown="ignore"),
-         make_column_selector(dtype_exclude=np.number)),
+        ("numericas", Pipeline(pasos_numericos), make_column_selector(dtype_include=np.number)),
+        ("categoricas", Pipeline([
+            ("imputar", SimpleImputer(strategy="constant", fill_value="faltante")),
+            ("one_hot", OneHotEncoder(handle_unknown="ignore")),
+        ]), make_column_selector(dtype_exclude=np.number)),
     ])
-    pipeline = Pipeline([
-        ("preparacion", preparacion),
-        ("modelo", LogisticRegression(max_iter=1000, C=valores.get("C", 1.0), random_state=semilla)),
-    ])
+    pipeline = Pipeline([("preparacion", preparacion), ("modelo", estimador)])
     calibrado = CalibratedClassifierCV(estimator=pipeline, cv=3)
     return _n_jobs_1(calibrado), ignorados

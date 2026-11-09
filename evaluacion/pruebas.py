@@ -45,13 +45,15 @@ def prueba_particion(problema) -> None:
     completa = (ent | prod | pru) == set(df.index)
     tamanos = {k: len(v) for k, v in pedazos.items()}
     positivos = {k: round(float(df.loc[v, problema.objetivo].mean()), 3) for k, v in pedazos.items()}
-    verificar("partición disjunta", disjunta, f"tamaños {tamanos}")
-    verificar("partición completa", completa, f"{sum(tamanos.values())} de {len(df)} filas")
-    verificar("partición estratificada", all(abs(v - 0.3) < 0.01 for v in positivos.values()),
-              f"proporción positiva {positivos}")
+    total = float(df[problema.objetivo].mean())
+    pid = problema.id
+    verificar(f"{pid}: partición disjunta", disjunta, f"tamaños {tamanos}")
+    verificar(f"{pid}: partición completa", completa, f"{sum(tamanos.values())} de {len(df)} filas")
+    verificar(f"{pid}: partición estratificada", all(abs(v - total) < 0.01 for v in positivos.values()),
+              f"proporción positiva {positivos}, total {total:.3f}")
     # misma semilla, misma partición
     otra = particion(problema, df)
-    verificar("partición repetible", all(otra[k].equals(pedazos[k]) for k in pedazos), "")
+    verificar(f"{pid}: partición repetible", all(otra[k].equals(pedazos[k]) for k in pedazos), "")
 
 
 def tabla_principal(problema) -> dict:
@@ -120,7 +122,14 @@ def pruebas_invalidas(problema) -> None:
         ("modelo que nunca existirá (xgboost)", problema,
          Candidato.model_construct(justificacion="x", modelo="xgboost", features=[],
                                    excluir_columnas=[], hiperparametros=[]), "validacion"),
-        ("arbol (no implementado todavía)", problema, Candidato(justificacion="x", modelo="arbol"), "validacion"),
+        ("arbol en serie (no implementado todavía)", problema_falso("serie"),
+         Candidato(justificacion="x", modelo="arbol"), "validacion"),
+        ("num_leaves no entero", problema, Candidato(justificacion="x", modelo="lightgbm",
+                                                    hiperparametros=[Hiperparametro(nombre="num_leaves", valor=15.5)]),
+         "validacion"),
+        ("max_depth fuera de rango", problema, Candidato(justificacion="x", modelo="arbol",
+                                                        hiperparametros=[Hiperparametro(nombre="max_depth", valor=0)]),
+         "validacion"),
         ("logistica en serie", problema_falso("serie"), LOGISTICA, "validacion"),
         ("C no numérico", problema, Candidato(justificacion="x", modelo="logistica",
                                              hiperparametros=[Hiperparametro(nombre="C", valor="mucho")]),
@@ -151,11 +160,76 @@ def pruebas_invalidas(problema) -> None:
               r.error is None and any("max_depth" in a for a in r.alertas), f"{r.alertas}")
 
 
+PROBLEMA_FUGA = "churn_a"
+COLUMNA_FUGA = "dias_desde_baja"
+# Criterios fijados antes de ver resultados (plan aprobado). No se ajustan.
+BRECHA_MINIMA_SIN_REVISAR = 0.30   # costo relativo producción/prueba - validación, sin revisar_fuga
+BRECHA_MAXIMA_CON_REVISAR = 0.15   # |costo relativo producción/prueba - validación|, con revisar_fuga
+
+
+def prueba_ruido(problema) -> None:
+    df = cargar_datos(problema)
+    pedazos = particion(problema, df)
+    con_ruido = evaluador._ruido_en_columnas_futuras(problema, df, pedazos)
+    ent = pedazos["entrenamiento"]
+    otros = pedazos["produccion"].append(pedazos["prueba"])
+    verificar("ruido: entrenamiento intacto",
+              con_ruido.loc[ent, COLUMNA_FUGA].equals(df.loc[ent, COLUMNA_FUGA]), f"{len(ent)} filas")
+    cambiadas = float((con_ruido.loc[otros, COLUMNA_FUGA] != df.loc[otros, COLUMNA_FUGA]).mean())
+    verificar("ruido: producción y prueba reemplazadas", cambiadas > 0.2,
+              f"{cambiadas:.0%} de {len(otros)} valores cambiaron")
+    otras_columnas = [col for col in df.columns if col != COLUMNA_FUGA]
+    verificar("ruido: las demás columnas no cambian", con_ruido[otras_columnas].equals(df[otras_columnas]), "")
+    verificar("ruido: determinista", evaluador._ruido_en_columnas_futuras(problema, df, pedazos).equals(con_ruido), "")
+
+
+def prueba_fuga(problema_credito, problema_churn) -> None:
+    lgbm = Candidato(justificacion="gradient boosting", modelo="lightgbm")
+    print(f"\n=== {problema_churn.id}, lightgbm con umbral por costos: fuga '{COLUMNA_FUGA}' ===")
+    print(f"{'revisar_fuga':<14}{'modo':<12}{'costo':>8}{'ref':>8}{'relativo':>10}{'resuelto':>10}"
+          f"{'max_auc_col':>13}{'seg':>7}  alertas / error")
+    rel = {}
+    for revisar in (False, True):
+        cap = Capacidades(umbral_por_costos=True, revisar_fuga=revisar)
+        for modo in MODOS:
+            r = correr(f"{problema_churn.id} / lightgbm / revisar={revisar} / {modo}", problema_churn, lgbm, cap, modo)
+            rel[(revisar, modo)] = r
+            print(f"{('encendida' if revisar else 'apagada'):<14}{modo:<12}{r.costo:>8.1f}{r.costo_referencia:>8.1f}"
+                  f"{r.costo_relativo:>10.3f}{('sí' if r.resuelto else 'no'):>10}"
+                  f"{r.metricas.get('max_auc_columna', float('nan')):>13.3f}{r.segundos:>7.2f}  "
+                  f"{r.error or '; '.join(r.alertas)}")
+
+    sin = rel[(False, "validacion")]
+    verificar("churn: aparece la alerta de fuga",
+              any(a.startswith(f"posible_fuga: {COLUMNA_FUGA}") for a in sin.alertas), f"{sin.alertas}")
+    for modo in ("produccion", "prueba"):
+        brecha_sin = rel[(False, modo)].costo_relativo - rel[(False, "validacion")].costo_relativo
+        brecha_con = rel[(True, modo)].costo_relativo - rel[(True, "validacion")].costo_relativo
+        verificar(f"churn sin revisar_fuga: {modo} mucho peor que validación (>= {BRECHA_MINIMA_SIN_REVISAR})",
+                  brecha_sin >= BRECHA_MINIMA_SIN_REVISAR,
+                  f"{rel[(False, 'validacion')].costo_relativo:.3f} -> {rel[(False, modo)].costo_relativo:.3f}, "
+                  f"brecha {brecha_sin:+.3f}")
+        verificar(f"churn con revisar_fuga: brecha {modo} - validación pequeña (< {BRECHA_MAXIMA_CON_REVISAR})",
+                  abs(brecha_con) < BRECHA_MAXIMA_CON_REVISAR,
+                  f"{rel[(True, 'validacion')].costo_relativo:.3f} -> {rel[(True, modo)].costo_relativo:.3f}, "
+                  f"brecha {brecha_con:+.3f}")
+
+    r_cred = correr("credito / logistica / max_auc", problema_credito, LOGISTICA, SIN_LECCION, "validacion")
+    verificar("crédito: max_auc_columna < 0.95", r_cred.metricas.get("max_auc_columna", 1.0) < 0.95,
+              f"{r_cred.metricas.get('max_auc_columna')}")
+    verificar("churn: max_auc_columna > 0.95", sin.metricas.get("max_auc_columna", 0.0) > 0.95,
+              f"{sin.metricas.get('max_auc_columna')}")
+
+
 def main() -> int:
     problema = cargar_problema(PROBLEMA)
+    churn = cargar_problema(PROBLEMA_FUGA)
     prueba_particion(problema)
+    prueba_particion(churn)
     tabla_principal(problema)
     prueba_determinismo(problema)
+    prueba_ruido(churn)
+    prueba_fuga(problema, churn)
     pruebas_invalidas(problema)
 
     lento = max(tiempos, key=lambda t: t[1])
