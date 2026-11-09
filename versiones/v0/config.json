@@ -11,8 +11,8 @@
   "cambios": [],
   "modelos": {
     "analista": "gpt-6-luna",
-    "proponente": "gpt-6.1-sol",
-    "diagnostico": "gpt-6.1-sol",
-    "curador": "gpt-6.1-sol"
+    "proponente": "gpt-6-luna",
+    "diagnostico": "gpt-6-luna",
+    "curador": "gpt-6-luna"
   }
 }
