@@ -1,0 +1,23 @@
+{
+  "id": "L002",
+  "version_origen": "v1",
+  "problema_origen": "churn_a",
+  "senal": "Los candidatos 22a0c5deda, 5931428c88 y 357c7720a0 recibieron una alerta de posible fuga porque una columna alcanzó AUC 0.99.",
+  "evidencia": [
+    "22a0c5deda",
+    "5931428c88",
+    "357c7720a0"
+  ],
+  "texto": "Antes de aceptar métricas altas, revisa columnas que revelen información posterior al momento de decisión o que predigan casi perfectamente el objetivo; exclúyelas y vuelve a validar.",
+  "tipo_cambio": "chequeo",
+  "capacidad": "revisar_fuga",
+  "regla_para": [
+    "analista",
+    "proponente",
+    "diagnostico"
+  ],
+  "alcance": "clasificacion",
+  "activa": true,
+  "veces_usada": 0,
+  "veces_que_ayudo": 0
+}

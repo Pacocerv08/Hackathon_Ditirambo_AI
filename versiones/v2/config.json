@@ -1,0 +1,23 @@
+{
+  "id": "v2",
+  "padre": "v1",
+  "capacidades": {
+    "umbral_por_costos": true,
+    "revisar_fuga": true,
+    "variables_calendario": false
+  },
+  "lecciones_activas": [
+    "L001",
+    "L002"
+  ],
+  "creada_por": "sistema",
+  "cambios": [
+    "Se incorporó L002: Antes de aceptar métricas altas, revisa columnas que revelen información posterior al momento de decisión o que predigan casi perfectamente el objetivo; exclúyelas y vuelve a validar."
+  ],
+  "modelos": {
+    "analista": "gpt-6-luna",
+    "proponente": "gpt-6-luna",
+    "diagnostico": "gpt-6-luna",
+    "curador": "gpt-6-luna"
+  }
+}

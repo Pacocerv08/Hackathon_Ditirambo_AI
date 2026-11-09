@@ -194,7 +194,7 @@ El puerto `resolver` selecciona `agentes.ciclo.resolver_sync` o `resolver_falso`
 
 ## 5. `llm.py`
 
-`llamar_modelo` devuelve una salida Pydantic estructurada usando el backend elegido por `LLM_BACKEND` (`codex` por CLI o `api` con Agents SDK); `allamar_modelo` ofrece la misma operación para código async mediante un hilo.
+`llamar_modelo` devuelve una salida Pydantic estructurada con el motor configurado por agente en `BACKEND`; `LLM_BACKEND`, si está definido, fuerza ese motor para todos. Las llamadas `api` usan OpenAI Responses y, si falta `OPENAI_API_KEY`, caen a Codex; `allamar_modelo` ofrece la misma operación para código async mediante un hilo.
 
 ## Hecho cuando
 

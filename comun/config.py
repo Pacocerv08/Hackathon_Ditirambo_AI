@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 SEMILLA = 42
 UMBRAL_RESUELTO = 0.9          # un caso está resuelto si costo_relativo < 0.9
@@ -21,7 +24,14 @@ ESFUERZO = {
     "curador": "high",
 }
 
-LLM_BACKEND = os.getenv("LLM_BACKEND", "codex")
+BACKEND = {
+    "analista": "api",
+    "proponente": "api",
+    "diagnostico": "api",
+    "curador": "codex",
+}
+
+LLM_BACKEND = os.getenv("LLM_BACKEND")
 LLM_TIMEOUT_SEGUNDOS = 180
 
 USAR_FALSOS = os.getenv("USAR_FALSOS", "0") == "1"

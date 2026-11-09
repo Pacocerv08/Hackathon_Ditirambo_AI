@@ -1,0 +1,10 @@
+version,caso,tipo,reservado,modelo,costo,costo_referencia,costo_relativo,resuelto,segundos,error
+v0,churn_a,clasificacion,False,lightgbm,635.0,796.0,0.7977386934673367,True,89.9678094569972,
+v0,churn_b,clasificacion,False,arbol,639.0,796.0,0.8027638190954773,True,78.88207772799797,
+v0,churn_r,clasificacion,True,arbol,603.0,796.0,0.757537688442211,True,86.21239005800453,
+v0,credito_a,clasificacion,False,logistica,224.0,375.0,0.5973333333333334,True,93.14248858000065,
+v0,credito_b,clasificacion,False,logistica,207.0,375.0,0.552,True,84.71480242999678,
+v0,credito_r,clasificacion,True,lightgbm,239.0,375.0,0.6373333333333333,True,74.21933819799597,
+v0,demanda_a,serie,False,lightgbm,6234.650833436203,6373.0,0.9782913593968623,False,72.44000285700167,
+v0,demanda_b,serie,False,lightgbm,3301.656283013692,3725.0,0.8863506800036757,True,70.06299950399989,
+v0,demanda_r,serie,True,lightgbm,8232.192031611594,9441.0,0.8719618717944703,True,123.85825165000279,

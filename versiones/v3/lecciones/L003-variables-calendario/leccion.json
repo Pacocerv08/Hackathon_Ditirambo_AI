@@ -1,0 +1,25 @@
+{
+  "id": "L003",
+  "version_origen": "v2",
+  "problema_origen": "demanda_a",
+  "senal": "En los cinco mejores resultados, los días festivos concentran aproximadamente entre el 48 % y el 52 % del costo.",
+  "evidencia": [
+    "7ee1d907da",
+    "e3c99fd929",
+    "b5503ccd36",
+    "ed3174944e",
+    "2f6a29a444"
+  ],
+  "texto": "Si los costos se concentran en fechas especiales, revisa si el modelo representa esos efectos y evalúa variables de calendario con validación temporal.",
+  "tipo_cambio": "variable",
+  "capacidad": "variables_calendario",
+  "regla_para": [
+    "analista",
+    "proponente",
+    "diagnostico"
+  ],
+  "alcance": "serie",
+  "activa": true,
+  "veces_usada": 0,
+  "veces_que_ayudo": 0
+}

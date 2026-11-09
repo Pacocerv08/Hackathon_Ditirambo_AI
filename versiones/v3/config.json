@@ -1,0 +1,24 @@
+{
+  "id": "v3",
+  "padre": "v2",
+  "capacidades": {
+    "umbral_por_costos": true,
+    "revisar_fuga": true,
+    "variables_calendario": true
+  },
+  "lecciones_activas": [
+    "L001",
+    "L002",
+    "L003"
+  ],
+  "creada_por": "sistema",
+  "cambios": [
+    "Se incorporó L003: Si los costos se concentran en fechas especiales, revisa si el modelo representa esos efectos y evalúa variables de calendario con validación temporal."
+  ],
+  "modelos": {
+    "analista": "gpt-6-luna",
+    "proponente": "gpt-6-luna",
+    "diagnostico": "gpt-6-luna",
+    "curador": "gpt-6-luna"
+  }
+}
