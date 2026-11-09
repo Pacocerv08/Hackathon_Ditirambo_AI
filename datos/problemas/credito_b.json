@@ -1,0 +1,26 @@
+{
+  "id": "credito_b",
+  "dominio": "riesgo_crediticio",
+  "tipo_tarea": "clasificacion",
+  "descripcion_negocio": "Decidir a qué solicitantes aprobar un crédito. Actuar significa rechazar la solicitud por riesgo de impago.",
+  "archivo": "datos/procesados/credito.parquet",
+  "objetivo": "class",
+  "columna_fecha": null,
+  "clase_positiva": "bad",
+  "pais": null,
+  "costos": {
+    "costo_fn": 5,
+    "costo_fp": 1,
+    "costo_faltante": null,
+    "costo_sobrante": null,
+    "justificacion": "Matriz de costos documentada del dataset German Credit (Statlog): aprobar a un mal pagador cuesta 5 veces más que rechazar a un buen cliente."
+  },
+  "particion": {
+    "semilla": 7,
+    "folds": 5,
+    "proporcion_prueba": 0.25,
+    "proporcion_produccion": 0.2,
+    "fecha_corte_prueba": null
+  },
+  "reservado": false
+}

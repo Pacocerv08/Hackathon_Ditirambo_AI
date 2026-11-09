@@ -350,7 +350,40 @@ def prueba_demanda(problema) -> None:
     print("  peores días en prueba sin calendario:", [(p.referencia, p.real, round(p.predicho), p.costo) for p in peor])
 
 
+APRENDIZAJE = {"credito_a", "credito_b", "churn_a", "churn_b", "demanda_a", "demanda_b"}
+RESERVADOS = {"credito_r", "churn_r", "demanda_r"}
+
+
+def prueba_catalogo() -> None:
+    """Los 9 problemas se listan y cargan sin internet. Los reservados SOLO se cargan:
+    aquí no se evalúan ni se les calcula huella ni partición."""
+    from datos.problemas import RUTA_PROBLEMAS, listar_problemas
+
+    a, r, todos = listar_problemas(), listar_problemas(True), listar_problemas(None)
+    verificar("catálogo: 6 de aprendizaje", set(a) == APRENDIZAJE and len(a) == 6, f"{a}")
+    verificar("catálogo: 3 reservados", set(r) == RESERVADOS and len(r) == 3, f"{r}")
+    verificar("catálogo: 9 en total", set(todos) == APRENDIZAJE | RESERVADOS and len(todos) == 9, "")
+    archivos = sorted(p.stem for p in RUTA_PROBLEMAS.glob("*.json"))
+    verificar("catálogo: id único e igual al nombre del archivo", archivos == sorted(todos), f"{archivos}")
+    print("\n=== Catálogo de problemas (los reservados solo se cargan) ===")
+    for pid in todos:
+        try:
+            p = cargar_problema(pid)
+            df = cargar_datos(p)
+            ok = len(df) > 0
+            extra = ""
+            if p.tipo_tarea == "serie":
+                extra = (f"media demanda {df[p.objetivo].mean():.1f}, "
+                         f"fecha_corte_prueba {p.particion.fecha_corte_prueba}")
+            print(f"  {pid:<10} {p.tipo_tarea:<14} reservado={p.reservado!s:<5} semilla={p.particion.semilla:<4} "
+                  f"filas={len(df):>5} columnas={df.shape[1]:>3}  {extra}")
+            verificar(f"catálogo: carga {pid}", ok, f"{len(df)} filas")
+        except Exception as e:
+            verificar(f"catálogo: carga {pid}", False, f"{type(e).__name__}: {e}")
+
+
 def main() -> int:
+    prueba_catalogo()
     problema = cargar_problema(PROBLEMA)
     churn = cargar_problema(PROBLEMA_FUGA)
     demanda = cargar_problema(PROBLEMA_SERIE)
