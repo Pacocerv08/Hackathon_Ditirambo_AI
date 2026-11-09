@@ -9,12 +9,22 @@ LIMITE_SEGUNDOS_CANDIDATO = 60
 
 MODELOS = {                    # confirmar qué modelos tiene habilitados la llave del evento
     "analista": "gpt-6-luna",
-    "proponente": "gpt-6.1-sol",
-    "diagnostico": "gpt-6.1-sol",
-    "curador": "gpt-6.1-sol",
+    "proponente": "gpt-6-luna",
+    "diagnostico": "gpt-6-luna",
+    "curador": "gpt-6-luna",
 }
 
-USAR_FALSOS = os.getenv("USAR_FALSOS", "1") == "1"
+ESFUERZO = {
+    "analista": "low",
+    "proponente": "medium",
+    "diagnostico": "medium",
+    "curador": "high",
+}
+
+LLM_BACKEND = os.getenv("LLM_BACKEND", "codex")
+LLM_TIMEOUT_SEGUNDOS = 180
+
+USAR_FALSOS = os.getenv("USAR_FALSOS", "0") == "1"
 RUTA_DB = "salidas/memoria.db"
 RUTA_VERSIONES = "versiones"
 RUTA_PROBLEMAS = "datos/problemas"

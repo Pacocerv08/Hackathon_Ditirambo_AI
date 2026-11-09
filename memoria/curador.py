@@ -8,7 +8,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from comun import config
 from comun.contratos import (
     Leccion,
     NombreAgente,
@@ -17,6 +16,7 @@ from comun.contratos import (
     ResultadoCiclo,
     Version,
 )
+from comun.llm import llamar_modelo
 
 
 class LeccionPropuesta(BaseModel):
@@ -148,16 +148,6 @@ def _resumen(
     return resumen
 
 
-def _parsear_salida(salida) -> PropuestaCurador:
-    if isinstance(salida, PropuestaCurador):
-        return salida
-    if isinstance(salida, str):
-        return PropuestaCurador.model_validate_json(salida)
-    if isinstance(salida, BaseModel):
-        salida = salida.model_dump(mode="python")
-    return PropuestaCurador.model_validate(salida)
-
-
 def curar(
     problema: Problema,
     ciclo: ResultadoCiclo,
@@ -168,21 +158,12 @@ def curar(
     resumen = _resumen(problema, ciclo, version, lecciones_actuales)
 
     try:
-        from agents import Agent, Runner
-
         instrucciones_path = Path(__file__).with_name("instrucciones_curador.md")
         with instrucciones_path.open("r", encoding="utf-8") as archivo:
             instrucciones = archivo.read()
-        agente = Agent(
-            name="curador",
-            instructions=instrucciones,
-            model=config.MODELOS["curador"],
-            output_type=PropuestaCurador,
-        )
         inicio = perf_counter()
-        resultado_runner = Runner.run_sync(agente, resumen)
+        propuesta = llamar_modelo("curador", instrucciones, resumen, PropuestaCurador)
         segundos = perf_counter() - inicio
-        propuesta = _parsear_salida(resultado_runner.final_output)
         salida_json = propuesta.model_dump_json()
         almacen.guardar_llamada(ciclo.run_id, "curador", resumen, salida_json, segundos)
     except Exception as error:
