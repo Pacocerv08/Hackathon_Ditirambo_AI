@@ -8,6 +8,7 @@ import logging
 from agents import Agent, Runner
 
 from agentes.contexto import ContextoCiclo
+from agentes.cliente import crear_cliente_y_modelo
 from agentes.esquemas import Diagnostico
 from agentes.entradas import entrada_diagnostico
 from agentes.herramientas import (
@@ -46,28 +47,32 @@ async def _llamar_modelo(ctx: ContextoCiclo, entrada: str) -> Diagnostico:
     if config.LLM_BACKEND == "codex":
         aviso = "En este entorno no tienes herramientas: toda la información que necesitas viene en la entrada.\n\n"
         return await allamar_modelo("diagnostico", aviso + instrucciones, entrada, Diagnostico)
-    agente = Agent(
-        name="Diagnóstico",
-        instructions=instrucciones,
-        model=config.MODELOS["diagnostico"],
-        output_type=Diagnostico,
-        tools=[
-            historial_intentos,
-            peores_casos,
-            consultar_lecciones,
-            contexto_de_fecha,
-        ],
-    )
-    resultado = await Runner.run(
-        agente,
-        entrada,
-        context=ctx,
-        max_turns=_MAX_TURNS,
-    )
-    salida = resultado.final_output
-    if isinstance(salida, Diagnostico):
-        return salida
-    return Diagnostico.model_validate(salida)
+    cliente, modelo = crear_cliente_y_modelo("diagnostico")
+    try:
+        agente = Agent(
+            name="Diagnóstico",
+            instructions=instrucciones,
+            model=modelo,
+            output_type=Diagnostico,
+            tools=[
+                historial_intentos,
+                peores_casos,
+                consultar_lecciones,
+                contexto_de_fecha,
+            ],
+        )
+        resultado = await Runner.run(
+            agente,
+            entrada,
+            context=ctx,
+            max_turns=_MAX_TURNS,
+        )
+        salida = resultado.final_output
+        if isinstance(salida, Diagnostico):
+            return salida
+        return Diagnostico.model_validate(salida)
+    finally:
+        await cliente.close()
 
 
 async def diagnosticar(
