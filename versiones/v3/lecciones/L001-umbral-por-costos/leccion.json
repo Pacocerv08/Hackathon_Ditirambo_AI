@@ -1,0 +1,23 @@
+{
+  "id": "L001",
+  "version_origen": "v0",
+  "problema_origen": "credito_a",
+  "senal": "Con umbral 0.5, los candidatos mantienen tasas de falsos negativos de alrededor de 0.66; los diagnósticos señalan casos reales de clase 1 con probabilidades inferiores a 0.5, aunque cada falso negativo cuesta cinco veces más que un falso positivo.",
+  "evidencia": [
+    "db135b265a",
+    "0d79463184",
+    "5c5fb065b0"
+  ],
+  "texto": "Cuando los costos de error son asimétricos, elige el umbral con los costos explícitos y el desempeño en validación; no asumas que 0.5 minimiza el costo.",
+  "tipo_cambio": "regla",
+  "capacidad": "umbral_por_costos",
+  "regla_para": [
+    "analista",
+    "proponente",
+    "diagnostico"
+  ],
+  "alcance": "clasificacion",
+  "activa": true,
+  "veces_usada": 0,
+  "veces_que_ayudo": 0
+}
