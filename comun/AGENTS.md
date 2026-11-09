@@ -192,6 +192,10 @@ Para cada función (`evaluar`, `huella`, `contexto_de_fecha`), intenta importar 
 
 El puerto `resolver` selecciona `agentes.ciclo.resolver_sync` o `resolver_falso` de forma independiente y registra su estado en `PUERTOS_FALSOS`.
 
+## 5. `llm.py`
+
+`llamar_modelo` devuelve una salida Pydantic estructurada usando el backend elegido por `LLM_BACKEND` (`codex` por CLI o `api` con Agents SDK); `allamar_modelo` ofrece la misma operación para código async mediante un hilo.
+
 ## Hecho cuando
 
 - `python -c "from comun.contratos import *; from comun.puertos import evaluar"` corre sin error.
